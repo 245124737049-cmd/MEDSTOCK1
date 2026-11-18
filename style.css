@@ -13,3 +13,21 @@
 
 /* Supplier comparison additions */
 .secondary-btn{background:#eaf3fb;color:#1769aa;border:1px solid #cfe2f3;padding:11px 16px;border-radius:9px;font-weight:700;cursor:pointer}.supplier-stats{margin-bottom:18px}.supplier-comparison{margin-top:20px}.supplier-comparison .panel-heading{gap:16px;align-items:center}.compact-search{max-width:260px;padding:10px 12px;border:1px solid #dce4ec;border-radius:8px}.supplier-comparison table{min-width:1350px}.recommend-chip{display:inline-block;padding:5px 8px;border-radius:20px;background:#e5f6ec;color:#12804a;font-size:11px;font-weight:700;white-space:nowrap}.verified-mark{display:block;color:#12804a;font-size:11px;margin-top:4px}.selected-offer{background:#f0fbf4}.rejected-offer{opacity:.62;background:#fff7f7}.status.danger{background:#fde8e8;color:#b42318}
+
+/* Sales history and medicine intelligence */
+.history-stats{margin-bottom:18px}
+.history-filters{display:grid;grid-template-columns:minmax(220px,2fr) minmax(145px,1fr) minmax(145px,1fr) auto;gap:12px;align-items:end;margin-bottom:18px}
+.history-filters input,.history-filters select{margin:0}
+.history-filters label{font-size:11px;color:var(--muted);font-weight:700}
+.history-filters label input{display:block;margin-top:7px}
+.intelligence-groups{display:grid;gap:16px}
+.intelligence-card{border:1px solid var(--border);border-radius:12px;padding:17px;margin-top:14px}
+.intelligence-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;margin-bottom:14px}
+.intelligence-card-head h3{font-size:15px;margin-bottom:6px}
+.intelligence-card-head p{font-size:11px;color:var(--muted)}
+.intelligence-card .tiny{margin-top:12px}
+#invoiceDetailPanel{margin-top:18px}
+#invoiceDetailPanel .panel-heading>div:last-child{display:flex;gap:8px;align-items:center}
+#invoiceDetailPanel .secondary-btn{padding:8px 12px;font-size:11px}
+@media(max-width:850px){.history-filters{grid-template-columns:1fr 1fr}.history-filters>input{grid-column:1/-1}}
+@media(max-width:600px){.history-filters{grid-template-columns:1fr}.history-filters>input{grid-column:auto}.intelligence-card{padding:12px}#invoiceDetailPanel .panel-heading{align-items:flex-start;gap:10px;flex-direction:column}}

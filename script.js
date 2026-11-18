@@ -59,7 +59,7 @@ async function saveMedicine(record,id){
 function showPage(page){
   document.querySelectorAll(".page").forEach(x=>x.classList.remove("active-page"));$(page).classList.add("active-page");
   document.querySelectorAll(".nav-link").forEach(x=>x.classList.toggle("active",x.dataset.page===page));
-  const titles={dashboard:"Dashboard",inventory:"Medicine Inventory",expiry:"Expiry Management",sales:"Sales & Billing",suppliers:"Suppliers",reports:"Reports & Analytics"};
+  const titles={dashboard:"Dashboard",inventory:"Medicine Inventory",expiry:"Expiry Management",sales:"Sales & Billing",salesHistory:"Sales History",suppliers:"Suppliers",comparison:"Medicine Intelligence",reports:"Reports & Analytics"};
   $("pageTitle").textContent=titles[page]||"MedStock";refreshAll();
 }
 document.querySelectorAll(".nav-link").forEach(a=>a.addEventListener("click",()=>showPage(a.dataset.page)));
@@ -98,19 +98,20 @@ function renderSaleOptions(){const list=medicines.filter(x=>x.quantity>0&&daysLe
 function addToCart(){
  const id=$("saleMedicine").value,q=Number($("saleQuantity").value),x=medicines.find(m=>m.id===id);if(!x){toast("Please select a medicine.");return;}if(!Number.isInteger(q)||q<=0){toast("Enter a valid quantity.");return;}
  const old=cart.find(c=>c.id===id),already=old?old.quantity:0;if(already+q>x.quantity){toast("Not enough stock available.");return;}
- if(old)old.quantity+=q;else cart.push({id:x.id,name:x.name,price:x.price,quantity:q});$("saleQuantity").value=1;renderCart();
+ if(old)old.quantity+=q;else cart.push({id:x.id,name:x.name,price:x.price,purchasePrice:x.purchase,quantity:q});$("saleQuantity").value=1;renderCart();
 }
 function removeFromCart(id){cart=cart.filter(x=>x.id!==id);renderCart();}
 function renderCart(){$("cartItems").innerHTML=cart.map(x=>`<div class="cart-item"><span><strong>${esc(x.name)}</strong><br>${x.quantity} × ${money(x.price)}</span><span>${money(x.price*x.quantity)} <button class="remove-cart" onclick="removeFromCart('${x.id}')">✕</button></span></div>`).join("")||"No items added yet.";$("cartTotal").textContent=money(cart.reduce((a,x)=>a+x.price*x.quantity,0));}
 async function completeSale(){
  if(!cart.length){toast("Add medicines to the cart first.");return;}
  for(const c of cart){const m=medicines.find(x=>x.id===c.id);if(!m||m.quantity<c.quantity||daysLeft(m)<0){toast("Stock changed or batch expired. Check your cart.");return;}}
- const total=cart.reduce((a,x)=>a+x.price*x.quantity,0),invoiceNo="INV-"+Date.now(),date=todayString,customer=$("customerName").value.trim()||"Walk-in Customer";
+ const total=cart.reduce((a,x)=>a+x.price*x.quantity,0),invoiceNo="INV-"+Date.now(),date=todayString,customer=$("customerName").value.trim()||"Walk-in Customer",paymentMethod=$("paymentMethod")?.value||"Cash";
  try{
   // Update stock and insert invoice. For production/multiple cashiers, use a server-side database transaction/RPC.
   for(const c of cart){const m=medicines.find(x=>x.id===c.id);const {error}=await db.from("medicines").update({quantity:m.quantity-c.quantity}).eq("id",m.id);if(error)throw error;}
-  const {error}=await db.from("sales").insert({user_id:currentUser.id,invoice_no:invoiceNo,customer,sale_date:date,items:cart,total});if(error)throw error;
-  const invoice={id:invoiceNo,customer,date,items:cart.map(x=>({...x})),total};cart=[];$("customerName").value="";await loadAll();refreshAll();toast("Invoice generated.");printInvoice(invoice);
+  const savedItems=cart.map(x=>({...x,paymentMethod,grossProfit:(Number(x.price)-Number(x.purchasePrice))*x.quantity}));
+  const {error}=await db.from("sales").insert({user_id:currentUser.id,invoice_no:invoiceNo,customer,sale_date:date,items:savedItems,total});if(error)throw error;
+  const invoice={id:invoiceNo,customer,date,paymentMethod,items:savedItems,total};cart=[];$("customerName").value="";await loadAll();refreshAll();toast("Invoice generated.");printInvoice(invoice);
  }catch(e){toast("Sale could not be completed: "+e.message+" Please check stock before retrying.");await loadAll();refreshAll();}
 }
 function printInvoice(inv){
@@ -135,12 +136,61 @@ function openOfferForm(){if(!suppliers.length){toast("Add at least one supplier 
 $("offerForm").addEventListener("submit",async e=>{e.preventDefault();const payload={user_id:currentUser.id,supplier_id:$("offerSupplier").value,medicine_name:$("offerMedicine").value.trim(),composition:$("offerComposition").value.trim(),strength:$("offerStrength").value.trim(),dosage_form:$("offerFormType").value,manufacturer:$("offerManufacturer").value.trim(),pack_size:$("offerPack").value.trim(),purchase_price:Number($("offerPrice").value),available_stock:Number($("offerStock").value),expiry_date:$("offerExpiry").value,decision_status:"pending"};if(payload.purchase_price<0||payload.available_stock<0){toast("Price and stock cannot be negative.");return;}try{const {error}=await db.from("supplier_offers").insert(payload);if(error)throw error;await loadAll();closeModal("offerModal");refreshAll();toast("Supplier medicine offer saved.");}catch(err){toast("Could not save offer. Run the updated database.sql in Supabase. "+err.message);}});
 async function decideOffer(id,decision){const chosen=supplierOffers.find(x=>x.id===id);if(!chosen)return;const same=supplierOffers.filter(x=>x.id!==id&&x.medicine_name.trim().toLowerCase()===chosen.medicine_name.trim().toLowerCase()&&x.strength.trim().toLowerCase()===chosen.strength.trim().toLowerCase()&&x.composition.trim().toLowerCase()===chosen.composition.trim().toLowerCase());if(decision==="selected"&&!confirm("Select this supplier and mark the other matching offers as rejected?"))return;if(decision==="rejected"&&!confirm("Reject this supplier offer? It will remain in your records."))return;try{if(decision==="selected"){for(const other of same){const {error}=await db.from("supplier_offers").update({decision_status:"rejected"}).eq("id",other.id);if(error)throw error;}}const {error}=await db.from("supplier_offers").update({decision_status:decision}).eq("id",id);if(error)throw error;await loadAll();renderSuppliers();toast(decision==="selected"?"Supplier selected; other matching offers rejected.":"Offer rejected and retained in records.");}catch(err){toast(err.message);}}
 $("offerSearch").addEventListener("input",renderSuppliers);
+$("historySearch").addEventListener("input",renderSalesHistory);$("historyFrom").addEventListener("change",renderSalesHistory);$("historyTo").addEventListener("change",renderSalesHistory);
+$("clearHistoryFilters").onclick=()=>{$("historySearch").value="";$("historyFrom").value="";$("historyTo").value="";renderSalesHistory();};
+$("historyExportBtn").onclick=exportFilteredHistory;$("closeInvoiceDetail").onclick=()=>$("invoiceDetailPanel").classList.add("hidden");
+$("reprintInvoiceBtn").onclick=()=>{if(selectedHistoryInvoice)printInvoice(selectedHistoryInvoice);};
+$("intelligenceSearch").addEventListener("input",renderMedicineIntelligence);$("intelligenceSort").addEventListener("change",renderMedicineIntelligence);
+
+let selectedHistoryInvoice=null;
+function filteredSales(){
+ const term=($("historySearch")?.value||"").trim().toLowerCase(),from=$("historyFrom")?.value||"",to=$("historyTo")?.value||"";
+ return sales.filter(x=>(!from||x.date>=from)&&(!to||x.date<=to)&&(!term||[x.id,x.customer,...(x.items||[]).map(i=>i.name)].join(" ").toLowerCase().includes(term)));
+}
+function renderSalesHistory(){
+ const rows=filteredSales(),revenue=rows.reduce((a,x)=>a+x.total,0),units=rows.reduce((a,x)=>a+(x.items||[]).reduce((n,i)=>n+Number(i.quantity||0),0),0);
+ const profitRows=rows.flatMap(x=>x.items||[]).filter(i=>Number.isFinite(Number(i.grossProfit))&&i.purchasePrice!==undefined);
+ const profit=profitRows.reduce((a,i)=>a+Number(i.grossProfit||0),0);
+ $("historyRevenue").textContent=money(revenue);$("historyInvoices").textContent=rows.length;$("historyUnits").textContent=units;
+ $("historyProfit").textContent=profitRows.length?money(profit):"—";
+ $("historyProfitNote").textContent=profitRows.length?"Calculated only from saved purchase-cost snapshots":"Older invoices do not contain historical purchase costs";
+ $("historyTable").innerHTML=rows.map(x=>`<tr><td><strong>${esc(x.id)}</strong></td><td>${esc(x.customer)}</td><td>${esc(x.date)}</td><td>${(x.items||[]).reduce((n,i)=>n+Number(i.quantity||0),0)}</td><td>${esc(x.payment_method||x.paymentMethod||x.items?.[0]?.paymentMethod||"Not recorded")}</td><td><strong>${money(x.total)}</strong></td><td><button class="action-btn edit-btn" onclick="viewInvoice('${esc(x.id)}')">View</button><button class="action-btn secondary-btn" onclick="reprintHistoryInvoice('${esc(x.id)}')">Print</button></td></tr>`).join("")||'<tr><td colspan="7">No invoices match these filters.</td></tr>';
+}
+function viewInvoice(id){
+ const inv=sales.find(x=>x.id===id);if(!inv)return;selectedHistoryInvoice=inv;
+ $("invoiceDetailTitle").textContent="Invoice "+inv.id;$("invoiceDetailMeta").textContent=inv.customer+" • "+inv.date+" • "+(inv.payment_method||inv.paymentMethod||inv.items?.[0]?.paymentMethod||"Payment not recorded");
+ $("invoiceDetailTable").innerHTML=(inv.items||[]).map(i=>`<tr><td>${esc(i.name)}</td><td>${Number(i.quantity||0)}</td><td>${money(i.price)}</td><td>${money(Number(i.price||0)*Number(i.quantity||0))}</td><td>${i.grossProfit===undefined?"Not recorded":money(i.grossProfit)}</td></tr>`).join("");
+ $("invoiceDetailTotal").textContent=money(inv.total);$("invoiceDetailPanel").classList.remove("hidden");$("invoiceDetailPanel").scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function reprintHistoryInvoice(id){const inv=sales.find(x=>x.id===id);if(inv)printInvoice(inv);}
+function exportFilteredHistory(){
+ const rows=[["Invoice","Customer","Date","Payment Method","Medicine","Quantity","Unit Price","Line Total","Recorded Gross Profit","Invoice Total"]];
+ filteredSales().forEach(inv=>(inv.items||[]).forEach(i=>rows.push([inv.id,inv.customer,inv.date,inv.payment_method||inv.paymentMethod||"",i.name,i.quantity,i.price,Number(i.price||0)*Number(i.quantity||0),i.grossProfit??"",inv.total])));
+ const csv=rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n");
+ const blob=new Blob(["\\uFEFF"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="MedStock-Sales-History.csv";a.click();URL.revokeObjectURL(url);
+}
+function renderMedicineIntelligence(){
+ const groups=new Map();
+ supplierOffers.forEach(o=>{const key=[o.medicine_name,o.composition,o.strength,o.dosage_form].map(v=>(v||"").trim().toLowerCase()).join("|");if(!groups.has(key))groups.set(key,[]);groups.get(key).push(o);});
+ const all=[...groups.entries()].map(([key,offers])=>({key,offers,name:offers[0].medicine_name}));
+ const term=($("intelligenceSearch")?.value||"").trim().toLowerCase(),sort=$("intelligenceSort")?.value||"name";
+ const visible=all.filter(g=>g.offers.some(o=>{const s=suppliers.find(x=>x.id===o.supplier_id);return [o.medicine_name,o.composition,o.strength,o.dosage_form,o.manufacturer,s?.name].join(" ").toLowerCase().includes(term);}));
+ visible.sort((a,b)=>{if(sort==="price")return Math.min(...a.offers.map(x=>Number(x.purchase_price)))-Math.min(...b.offers.map(x=>Number(x.purchase_price)));if(sort==="expiry")return Math.min(...a.offers.map(x=>new Date(x.expiry_date).getTime()))-Math.min(...b.offers.map(x=>new Date(x.expiry_date).getTime()));return a.name.localeCompare(b.name);});
+ $("intelOfferCount").textContent=supplierOffers.length;$("intelGroupCount").textContent=all.length;$("intelMultiCount").textContent=all.filter(g=>g.offers.length>1).length;
+ $("intelVerifiedCount").textContent=supplierOffers.filter(o=>suppliers.find(s=>s.id===o.supplier_id)?.verification_status==="verified").length;
+ $("intelligenceGroups").innerHTML=visible.map(g=>{
+  const offers=[...g.offers].sort((a,b)=>Number(a.purchase_price)-Number(b.purchase_price));
+  const rows=offers.map(o=>{const s=suppliers.find(x=>x.id===o.supplier_id)||{};const days=Math.ceil((new Date(o.expiry_date+"T00:00:00")-new Date(todayString+"T00:00:00"))/86400000);return `<tr><td>${esc(s.name||"Unknown supplier")}${s.verification_status==="verified"?' <span class="status safe">Verified</span>':' <span class="status warning">Not verified</span>'}</td><td>${esc(o.manufacturer||"—")}</td><td>${esc(o.pack_size)}</td><td><strong>${money(o.purchase_price)}</strong></td><td>${Number(o.available_stock)}</td><td>${esc(o.expiry_date)} (${days<0?"expired":days+" days"})</td><td>${esc(o.decision_status||"pending")}</td></tr>`;}).join("");
+  return `<article class="intelligence-card"><div class="intelligence-card-head"><div><h3>${esc(g.name)}</h3><p>${esc(offers[0].composition)} · ${esc(offers[0].strength)} · ${esc(offers[0].dosage_form)}</p></div><span class="status ${offers.length>1?"safe":"warning"}">${offers.length} offer${offers.length===1?"":"s"}</span></div><div class="table-wrap"><table><thead><tr><th>Supplier</th><th>Manufacturer</th><th>Pack size</th><th>Pack price</th><th>Stock</th><th>Expiry</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table></div><p class="tiny muted">Offers are grouped only when medicine name, composition, strength and dosage form match exactly as entered. Verify source documents and packaging before purchase.</p></article>`;
+ }).join("")||'<p class="muted">No matching supplier offers. Add offers in Supplier Management to compare them here.</p>';
+}
+
 function updateReports(){const revenue=sales.reduce((a,x)=>a+x.total,0),value=medicines.reduce((a,x)=>a+x.quantity*x.purchase,0),low=medicines.filter(x=>x.quantity<=x.minimum&&daysLeft(x)>=0).length;$("reportRevenue").textContent=money(revenue);$("reportInvoices").textContent=sales.length;$("inventoryValue").textContent=money(value);$("reportLow").textContent=low;$("reportTable").innerHTML=sales.map(x=>`<tr><td>${esc(x.id)}</td><td>${esc(x.customer)}</td><td>${esc(x.date)}</td><td>${x.items.length}</td><td>${money(x.total)}</td></tr>`).join("")||'<tr><td colspan="5">No reports available yet.</td></tr>';}
 function exportReport(){const rows=[["Invoice","Customer","Date","Total"],...sales.map(x=>[x.id,x.customer,x.date,x.total])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="MedStock-Sales-Report.csv";a.click();URL.revokeObjectURL(url);}
 function updateChart(){const canvas=$("salesChart");if(!canvas||!window.Chart)return;const labels=[],values=[];for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const ds=localDate(d);labels.push(d.toLocaleDateString("en-IN",{day:"numeric",month:"short"}));values.push(sales.filter(x=>x.date===ds).reduce((a,x)=>a+x.total,0));}if(salesChart)salesChart.destroy();salesChart=new Chart(canvas,{type:"bar",data:{labels,datasets:[{label:"Sales (₹)",data:values,backgroundColor:"#3d91d3",borderRadius:6,maxBarThickness:35}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{callback:v=>"₹"+v}}}}});}
 function closeModal(id){$(id).classList.remove("show");}
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)m.classList.remove("show");}));
-function refreshAll(){updateDashboard();renderInventory();renderExpiry();renderSaleOptions();renderCart();renderSales();renderSuppliers();updateReports();}
+function refreshAll(){updateDashboard();renderInventory();renderExpiry();renderSaleOptions();renderCart();renderSales();renderSuppliers();renderSalesHistory();renderMedicineIntelligence();updateReports();}
 $("addCartBtn").onclick=addToCart;$("completeSaleBtn").onclick=completeSale;$("exportBtn").onclick=exportReport;
-window.openMedicineForm=openMedicineForm;window.openSupplierForm=openSupplierForm;window.showPage=showPage;window.closeModal=closeModal;window.editMedicine=editMedicine;window.deleteMedicine=deleteMedicine;window.deleteSupplier=deleteSupplier;window.openOfferForm=openOfferForm;window.decideOffer=decideOffer;window.removeFromCart=removeFromCart;
+window.openMedicineForm=openMedicineForm;window.openSupplierForm=openSupplierForm;window.showPage=showPage;window.closeModal=closeModal;window.editMedicine=editMedicine;window.deleteMedicine=deleteMedicine;window.deleteSupplier=deleteSupplier;window.openOfferForm=openOfferForm;window.decideOffer=decideOffer;window.removeFromCart=removeFromCart;window.viewInvoice=viewInvoice;window.reprintHistoryInvoice=reprintHistoryInvoice;
 document.addEventListener("DOMContentLoaded",init);
