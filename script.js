@@ -1,6 +1,7 @@
 /* MedStock cloud app. Requires config.js values and database.sql setup. */
 let db = null, currentUser = null, medicines = [], suppliers = [], sales = [], supplierOffers = [], cart = [], salesChart = null, purchaseOrders = [], stockMovements = [], barcodeStream = null, barcodeFrame = null;
 let authMode = "login";
+let returnToOfferAfterSupplier = false;
 const $ = id => document.getElementById(id);
 const todayString = localDate(new Date());
 
@@ -127,7 +128,7 @@ function printInvoice(inv){
 }
 function renderSales(){$("salesTable").innerHTML=sales.slice(0,20).map(x=>`<tr><td>${esc(x.id)}</td><td>${esc(x.customer)}</td><td>${esc(x.date)}</td><td>${money(x.total)}</td></tr>`).join("")||'<tr><td colspan="4">No sales recorded yet.</td></tr>';}
 function openSupplierForm(){$("supplierForm").reset();$("supplierVerification").value="pending";$("supplierModal").classList.add("show");}
-$("supplierForm").addEventListener("submit",async e=>{e.preventDefault();try{const {error}=await db.from("suppliers").insert({user_id:currentUser.id,name:$("supplierName").value.trim(),company:$("supplierCompany").value.trim(),phone:$("supplierPhone").value.trim(),email:$("supplierEmail").value.trim(),drug_license:$("supplierLicense").value.trim(),gst_number:$("supplierGST").value.trim(),verification_status:$("supplierVerification").value});if(error)throw error;await loadAll();closeModal("supplierModal");refreshAll();toast("Supplier added.");}catch(err){toast(err.message);}});
+$("supplierForm").addEventListener("submit",async e=>{e.preventDefault();try{const {error}=await db.from("suppliers").insert({user_id:currentUser.id,name:$("supplierName").value.trim(),company:$("supplierCompany").value.trim(),phone:$("supplierPhone").value.trim(),email:$("supplierEmail").value.trim(),drug_license:$("supplierLicense").value.trim(),gst_number:$("supplierGST").value.trim(),verification_status:$("supplierVerification").value});if(error)throw error;await loadAll();closeModal("supplierModal");refreshAll();toast("Supplier added.");if(returnToOfferAfterSupplier){returnToOfferAfterSupplier=false;openOfferForm();}}catch(err){toast(err.message);}});
 async function deleteSupplier(id){if(!confirm("Delete this supplier and its offers?"))return;const {error}=await db.from("suppliers").delete().eq("id",id);if(error){toast(error.message);return;}await loadAll();refreshAll();toast("Supplier deleted.");}
 function renderSuppliers(){
  $("supplierCount").textContent=suppliers.length;$("offerCount").textContent=supplierOffers.length;$("selectedOfferCount").textContent=supplierOffers.filter(x=>x.decision_status==="selected").length;$("pendingOfferCount").textContent=supplierOffers.filter(x=>x.decision_status==="pending").length;
