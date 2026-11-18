@@ -107,7 +107,7 @@ function addToCart(){
 }
 function removeFromCart(id){cart=cart.filter(x=>x.id!==id);renderCart();}
 function renderCart(){$("cartItems").innerHTML=cart.map(x=>`<div class="cart-item"><span><strong>${esc(x.name)}</strong><br>${x.quantity} × ${money(x.price)}</span><span>${money(x.price*x.quantity)} <button class="remove-cart" onclick="removeFromCart('${x.id}')">✕</button></span></div>`).join("")||"No items added yet.";$("cartTotal").textContent=money(cart.reduce((a,x)=>a+x.price*x.quantity,0));}
-async async function completeSale(){
+async function completeSale(){
  if(!cart.length){toast("Add medicines to the cart first.");return;}
  for(const c of cart){const m=medicines.find(x=>x.id===c.id);if(!m||m.quantity<c.quantity||daysLeft(m)<0){toast("Stock changed or batch expired. Check your cart.");return;}}
  const total=cart.reduce((a,x)=>a+x.price*x.quantity,0),invoiceNo="INV-"+Date.now(),date=todayString,customer=$("customerName").value.trim()||"Walk-in Customer",paymentMethod=$("paymentMethod")?.value||"Cash";
