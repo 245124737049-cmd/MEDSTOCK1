@@ -41,15 +41,20 @@ async function enterApp(user){
   setCloud("Loading cloud data...");try{await loadAll();setCloud("Cloud connected");refreshAll();}catch(e){setCloud("Sync error",true);toast("Could not load cloud data: "+e.message);}
 }
 async function loadAll(){
-  const [m,s,sa,so]=await Promise.all([
+  const [m,s,sa]=await Promise.all([
     db.from("medicines").select("*").order("created_at",{ascending:true}),
     db.from("suppliers").select("*").order("created_at",{ascending:true}),
-    db.from("sales").select("*").order("created_at",{ascending:false}),
-    db.from("supplier_offers").select("*").order("created_at",{ascending:false})
+    db.from("sales").select("*").order("created_at",{ascending:false})
   ]);
-  if(m.error)throw m.error;if(s.error)throw s.error;if(sa.error)throw sa.error;if(so.error)throw so.error;
+  if(m.error)throw m.error;if(s.error)throw s.error;if(sa.error)throw sa.error;
+  const so=await db.from("supplier_offers").select("*").order("created_at",{ascending:false});
+  if(so.error){
+    const missing=so.error.code==="42P01"||so.error.code==="PGRST205"||/supplier_offers.*(not found|does not exist)|relation .*supplier_offers/i.test(so.error.message||"");
+    if(!missing)throw so.error;
+    supplierOffers=[];window.medstockOffersTableMissing=true;
+  }else{supplierOffers=so.data||[];window.medstockOffersTableMissing=false;}
   medicines=(m.data||[]).map(x=>({...x,manufacture:x.manufacture||"",minimum:Number(x.minimum),quantity:Number(x.quantity),price:Number(x.price),purchase:Number(x.purchase)}));
-  suppliers=s.data||[];supplierOffers=so.data||[];sales=(sa.data||[]).map(x=>({id:x.invoice_no,customer:x.customer,date:x.sale_date,items:x.items||[],total:Number(x.total)}));
+  suppliers=s.data||[];sales=(sa.data||[]).map(x=>({id:x.invoice_no,customer:x.customer,date:x.sale_date,items:x.items||[],total:Number(x.total)}));
 }
 async function saveMedicine(record,id){
   const payload={user_id:currentUser.id,name:record.name,category:record.category,batch:record.batch,manufacturer:record.manufacturer,purchase:record.purchase,price:record.price,quantity:record.quantity,minimum:record.minimum,manufacture:record.manufacture||null,expiry:record.expiry};
@@ -59,7 +64,7 @@ async function saveMedicine(record,id){
 function showPage(page){
   document.querySelectorAll(".page").forEach(x=>x.classList.remove("active-page"));$(page).classList.add("active-page");
   document.querySelectorAll(".nav-link").forEach(x=>x.classList.toggle("active",x.dataset.page===page));
-  const titles={dashboard:"Dashboard",inventory:"Medicine Inventory",expiry:"Expiry Management",sales:"Sales & Billing",salesHistory:"Sales History",suppliers:"Suppliers",comparison:"Medicine Intelligence",reports:"Reports & Analytics"};
+  const titles={dashboard:"Dashboard",inventory:"Medicine Inventory",expiry:"Expiry Management",sales:"Sales & Billing",salesHistory:"Sales History",suppliers:"Suppliers",comparison:"Medicine Intelligence",aiInsights:"AI Purchase Advisor",reports:"Reports & Analytics"};
   $("pageTitle").textContent=titles[page]||"MedStock";refreshAll();
 }
 document.querySelectorAll(".nav-link").forEach(a=>a.addEventListener("click",()=>showPage(a.dataset.page)));
@@ -132,8 +137,21 @@ function renderSuppliers(){
  const rows=supplierOffers.filter(o=>{const s=suppliers.find(x=>x.id===o.supplier_id);return [o.medicine_name,o.composition,o.strength,s?.name].join(" ").toLowerCase().includes(term);});
  $("offerTable").innerHTML=rows.map(o=>{const s=suppliers.find(x=>x.id===o.supplier_id)||{};const selected=o.decision_status==="selected",rejected=o.decision_status==="rejected";return `<tr class="${selected?"selected-offer":rejected?"rejected-offer":""}"><td><strong>${esc(o.medicine_name)}</strong></td><td>${esc(o.composition)}</td><td>${esc(o.strength)}</td><td>${esc(o.dosage_form)}</td><td>${esc(o.manufacturer||"—")}</td><td>${esc(o.pack_size)}</td><td><strong>${money(o.purchase_price)}</strong></td><td>${o.available_stock}</td><td>${esc(o.expiry_date)}</td><td>${esc(s.name||"Unknown")}${s.verification_status==="verified"?'<span class="verified-mark"> ✓ Verified</span>':""}</td><td>${bestIds.has(o.id)?'<span class="recommend-chip">Recommended</span>':'—'}</td><td>${selected?'<span class="status safe">Selected</span>':rejected?'<span class="status danger">Rejected</span>':`<button class="action-btn edit-btn" onclick="decideOffer('${o.id}','selected')">Select</button> <button class="action-btn delete-btn" onclick="decideOffer('${o.id}','rejected')">Reject</button>`}</td></tr>`;}).join("")||'<tr><td colspan="12">No medicine offers yet. Add suppliers and their medicine offers to compare.</td></tr>';
 }
-function openOfferForm(){if(!suppliers.length){toast("Add at least one supplier first.");openSupplierForm();return;}$("offerForm").reset();$("offerSupplier").innerHTML=suppliers.map(s=>`<option value="${s.id}">${esc(s.name)}${s.company?" — "+esc(s.company):""}</option>`).join("");$("offerExpiry").value="";$("offerModal").classList.add("show");}
-$("offerForm").addEventListener("submit",async e=>{e.preventDefault();const payload={user_id:currentUser.id,supplier_id:$("offerSupplier").value,medicine_name:$("offerMedicine").value.trim(),composition:$("offerComposition").value.trim(),strength:$("offerStrength").value.trim(),dosage_form:$("offerFormType").value,manufacturer:$("offerManufacturer").value.trim(),pack_size:$("offerPack").value.trim(),purchase_price:Number($("offerPrice").value),available_stock:Number($("offerStock").value),expiry_date:$("offerExpiry").value,decision_status:"pending"};if(payload.purchase_price<0||payload.available_stock<0){toast("Price and stock cannot be negative.");return;}try{const {error}=await db.from("supplier_offers").insert(payload);if(error)throw error;await loadAll();closeModal("offerModal");refreshAll();toast("Supplier medicine offer saved.");}catch(err){toast("Could not save offer. Run the updated database.sql in Supabase. "+err.message);}});
+function openOfferForm(){
+ if(window.medstockOffersTableMissing){toast("Supplier offers database is not set up yet. Run database.sql in Supabase first.");return;}
+ if(!suppliers.length){toast("Add at least one supplier first.");openSupplierForm();return;}
+ $("offerForm").reset();$("offerSupplier").innerHTML=suppliers.map(s=>`<option value="${s.id}">${esc(s.name)}${s.company?" — "+esc(s.company):""}</option>`).join("");
+ $("offerExpiry").min=todayString;$("offerExpiry").value="";$("offerMinOrder").value="1";$("offerDiscount").value="0";$("offerDelivery").value="0";$("offerModal").classList.add("show");
+}
+$("offerForm").addEventListener("submit",async e=>{
+ e.preventDefault();
+ const payload={user_id:currentUser.id,supplier_id:$("offerSupplier").value,medicine_name:$("offerMedicine").value.trim(),composition:$("offerComposition").value.trim(),strength:$("offerStrength").value.trim(),dosage_form:$("offerFormType").value,manufacturer:$("offerManufacturer").value.trim(),pack_size:$("offerPack").value.trim(),purchase_price:Number($("offerPrice").value),available_stock:Number($("offerStock").value),expiry_date:$("offerExpiry").value,decision_status:"pending",batch_number:$("offerBatch").value.trim(),mrp_per_pack:$("offerMrp").value?Number($("offerMrp").value):null,discount_percent:Number($("offerDiscount").value||0),minimum_order_qty:Number($("offerMinOrder").value||1),delivery_days:Number($("offerDelivery").value||0),barcode:$("offerBarcode").value.trim(),offer_notes:$("offerNotes").value.trim()};
+ if(!payload.supplier_id||!payload.medicine_name||!payload.composition||!payload.strength||!payload.dosage_form||!payload.pack_size||!payload.expiry_date){toast("Complete all required offer details.");return;}
+ if(payload.purchase_price<0||payload.available_stock<0||payload.discount_percent<0||payload.discount_percent>100||payload.minimum_order_qty<1||payload.delivery_days<0||(payload.mrp_per_pack!==null&&payload.mrp_per_pack<payload.purchase_price)){toast("Check price, MRP, discount, stock and order quantity.");return;}
+ if(window.medstockOffersTableMissing){toast("Run the supplier-offers SQL migration in Supabase before saving.");return;}
+ try{const {error}=await db.from("supplier_offers").insert(payload);if(error)throw error;await loadAll();closeModal("offerModal");refreshAll();toast("Medicine offer saved successfully.");}
+ catch(err){toast("Offer not saved: "+err.message);}
+});
 async function decideOffer(id,decision){const chosen=supplierOffers.find(x=>x.id===id);if(!chosen)return;const same=supplierOffers.filter(x=>x.id!==id&&x.medicine_name.trim().toLowerCase()===chosen.medicine_name.trim().toLowerCase()&&x.strength.trim().toLowerCase()===chosen.strength.trim().toLowerCase()&&x.composition.trim().toLowerCase()===chosen.composition.trim().toLowerCase());if(decision==="selected"&&!confirm("Select this supplier and mark the other matching offers as rejected?"))return;if(decision==="rejected"&&!confirm("Reject this supplier offer? It will remain in your records."))return;try{if(decision==="selected"){for(const other of same){const {error}=await db.from("supplier_offers").update({decision_status:"rejected"}).eq("id",other.id);if(error)throw error;}}const {error}=await db.from("supplier_offers").update({decision_status:decision}).eq("id",id);if(error)throw error;await loadAll();renderSuppliers();toast(decision==="selected"?"Supplier selected; other matching offers rejected.":"Offer rejected and retained in records.");}catch(err){toast(err.message);}}
 $("offerSearch").addEventListener("input",renderSuppliers);
 $("historySearch").addEventListener("input",renderSalesHistory);$("historyFrom").addEventListener("change",renderSalesHistory);$("historyTo").addEventListener("change",renderSalesHistory);
@@ -185,12 +203,46 @@ function renderMedicineIntelligence(){
  }).join("")||'<p class="muted">No matching supplier offers. Add offers in Supplier Management to compare them here.</p>';
 }
 
+
+function purchaseOfferScore(o){
+ const supplier=suppliers.find(s=>s.id===o.supplier_id)||{},days=Math.ceil((new Date((o.expiry_date||"1970-01-01")+"T00:00:00")-new Date(todayString+"T00:00:00"))/86400000);
+ const peers=supplierOffers.filter(x=>[x.medicine_name,x.composition,x.strength,x.dosage_form].every((v,i)=>String(v||"").trim().toLowerCase()===[o.medicine_name,o.composition,o.strength,o.dosage_form][i].trim().toLowerCase()));
+ const prices=peers.map(x=>Number(x.purchase_price)),min=Math.min(...prices),max=Math.max(...prices);
+ const priceScore=max===min?1:(max-Number(o.purchase_price))/(max-min);
+ const expiryScore=days<0?0:Math.min(days/365,1),stockScore=Math.min(Number(o.available_stock)/Math.max(1,Number(o.minimum_order_qty||1)*5),1);
+ const verified=supplier.verification_status==="verified"?1:0;
+ const score=priceScore*35+expiryScore*20+stockScore*15+verified*30;
+ return {score,days,supplier,priceScore,expiryScore,stockScore,verified};
+}
+function renderAIInsights(){
+ if(!$("aiPriorityList"))return;
+ const low=medicines.filter(x=>x.quantity<=x.minimum&&daysLeft(x)>=0).sort((a,b)=>(a.quantity-a.minimum)-(b.quantity-b.minimum));
+ const risk=medicines.filter(x=>daysLeft(x)<=60),riskValue=risk.reduce((a,x)=>a+x.quantity*x.purchase,0);
+ const pending=supplierOffers.filter(x=>(x.decision_status||"pending")==="pending");
+ $("aiLowStock").textContent=low.length;$("aiExpiryRisk").textContent=risk.length;$("aiExpiryValue").textContent=money(riskValue);$("aiOffersReview").textContent=pending.length;
+ const actions=[];
+ low.slice(0,5).forEach(x=>actions.push({type:"Stock",title:x.name+" needs review",desc:x.quantity+" units left against minimum "+x.minimum+". Suggested top-up: "+Math.max(0,x.minimum*2-x.quantity)+" units.",priority:"High"}));
+ risk.slice(0,5).forEach(x=>actions.push({type:daysLeft(x)<0?"Expired":"Expiry",title:x.name+" · batch "+x.batch,desc:(daysLeft(x)<0?"Expired "+Math.abs(daysLeft(x))+" days ago": "Expires in "+daysLeft(x)+" days")+" · "+x.quantity+" units · purchase value "+money(x.quantity*x.purchase)+".",priority:daysLeft(x)<0?"Urgent":"Review"}));
+ if(!actions.length)actions.push({type:"Clear",title:"No urgent stock or expiry alerts",desc:"Your current stock and expiry records do not show these priority conditions.",priority:"Good"});
+ $("aiPriorityList").innerHTML=actions.map(x=>`<article class="insight-row"><span class="insight-tag">${esc(x.type)}</span><div><strong>${esc(x.title)}</strong><p>${esc(x.desc)}</p></div><span class="status ${x.priority==="Urgent"?"danger":x.priority==="Good"?"safe":"warning"}">${esc(x.priority)}</span></article>`).join("");
+ const groups=new Map();supplierOffers.forEach(o=>{const k=[o.medicine_name,o.composition,o.strength,o.dosage_form].map(v=>String(v||"").trim().toLowerCase()).join("|");if(!groups.has(k))groups.set(k,[]);groups.get(k).push(o);});
+ const picks=[...groups.values()].filter(a=>a.length>1).map(a=>a.map(o=>({o,...purchaseOfferScore(o)})).sort((x,y)=>y.score-x.score)[0]).sort((a,b)=>b.score-a.score).slice(0,6);
+ $("aiPurchaseList").innerHTML=picks.map(x=>`<article class="insight-row"><span class="insight-tag">Top score</span><div><strong>${esc(x.o.medicine_name)} · ${esc(x.supplier.name||"Supplier")}</strong><p>${money(x.o.purchase_price)} pack · ${x.days} days to expiry · ${x.verified?"supplier marked verified":"supplier verification pending"} · score ${Math.round(x.score)}/100</p></div><span class="status ${x.verified&&x.days>90?"safe":"warning"}">${Math.round(x.score)}/100</span></article>`).join("")||'<p class="muted tiny">Add offers for the same medicine from at least two suppliers to see a side-by-side purchase ranking.</p>';
+ const reorder=low.sort((a,b)=>(a.quantity/a.minimum)-(b.quantity/b.minimum));
+ $("aiReorderTable").innerHTML=reorder.map(x=>`<tr><td><strong>${esc(x.name)}</strong></td><td>${esc(x.batch)}</td><td>${x.quantity}</td><td>${x.minimum}</td><td><strong>${Math.max(0,x.minimum*2-x.quantity)}</strong></td><td>${esc(x.expiry)}</td><td><span class="status danger">Reorder review</span></td></tr>`).join("")||'<tr><td colspan="7">No medicines currently below minimum stock.</td></tr>';
+ $("aiOfferRanking").innerHTML=[...groups.values()].filter(a=>a.length>1).map(a=>{const ranked=a.map(o=>({o,...purchaseOfferScore(o)})).sort((x,y)=>y.score-x.score);return `<article class="insight-row"><div><strong>${esc(a[0].medicine_name)} — ${ranked.length} comparable offers</strong><p>${ranked.map((x,i)=>(i+1)+". "+esc(x.supplier.name||"Supplier")+" "+money(x.o.purchase_price)+" (score "+Math.round(x.score)+"/100)").join(" · ")}</p></div></article>`;}).join("")||'<p class="muted tiny">No comparable multi-supplier offers yet.</p>';
+}
+function exportReorderPlan(){
+ const rows=[["Medicine","Batch","Available","Minimum","Suggested top-up","Expiry"],...medicines.filter(x=>x.quantity<=x.minimum&&daysLeft(x)>=0).map(x=>[x.name,x.batch,x.quantity,x.minimum,Math.max(0,x.minimum*2-x.quantity),x.expiry])];
+ const csv=rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n"),blob=new Blob(["\\uFEFF"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="MedStock-Reorder-Plan.csv";a.click();URL.revokeObjectURL(url);
+}
+
 function updateReports(){const revenue=sales.reduce((a,x)=>a+x.total,0),value=medicines.reduce((a,x)=>a+x.quantity*x.purchase,0),low=medicines.filter(x=>x.quantity<=x.minimum&&daysLeft(x)>=0).length;$("reportRevenue").textContent=money(revenue);$("reportInvoices").textContent=sales.length;$("inventoryValue").textContent=money(value);$("reportLow").textContent=low;$("reportTable").innerHTML=sales.map(x=>`<tr><td>${esc(x.id)}</td><td>${esc(x.customer)}</td><td>${esc(x.date)}</td><td>${x.items.length}</td><td>${money(x.total)}</td></tr>`).join("")||'<tr><td colspan="5">No reports available yet.</td></tr>';}
 function exportReport(){const rows=[["Invoice","Customer","Date","Total"],...sales.map(x=>[x.id,x.customer,x.date,x.total])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="MedStock-Sales-Report.csv";a.click();URL.revokeObjectURL(url);}
 function updateChart(){const canvas=$("salesChart");if(!canvas||!window.Chart)return;const labels=[],values=[];for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const ds=localDate(d);labels.push(d.toLocaleDateString("en-IN",{day:"numeric",month:"short"}));values.push(sales.filter(x=>x.date===ds).reduce((a,x)=>a+x.total,0));}if(salesChart)salesChart.destroy();salesChart=new Chart(canvas,{type:"bar",data:{labels,datasets:[{label:"Sales (₹)",data:values,backgroundColor:"#3d91d3",borderRadius:6,maxBarThickness:35}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{callback:v=>"₹"+v}}}}});}
 function closeModal(id){$(id).classList.remove("show");}
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)m.classList.remove("show");}));
-function refreshAll(){updateDashboard();renderInventory();renderExpiry();renderSaleOptions();renderCart();renderSales();renderSuppliers();renderSalesHistory();renderMedicineIntelligence();updateReports();}
+function refreshAll(){updateDashboard();renderInventory();renderExpiry();renderSaleOptions();renderCart();renderSales();renderSuppliers();renderSalesHistory();renderMedicineIntelligence();renderAIInsights();updateReports();}
 $("addCartBtn").onclick=addToCart;$("completeSaleBtn").onclick=completeSale;$("exportBtn").onclick=exportReport;
-window.openMedicineForm=openMedicineForm;window.openSupplierForm=openSupplierForm;window.showPage=showPage;window.closeModal=closeModal;window.editMedicine=editMedicine;window.deleteMedicine=deleteMedicine;window.deleteSupplier=deleteSupplier;window.openOfferForm=openOfferForm;window.decideOffer=decideOffer;window.removeFromCart=removeFromCart;window.viewInvoice=viewInvoice;window.reprintHistoryInvoice=reprintHistoryInvoice;
+window.openMedicineForm=openMedicineForm;window.openSupplierForm=openSupplierForm;window.renderAIInsights=renderAIInsights;window.exportReorderPlan=exportReorderPlan;window.showPage=showPage;window.closeModal=closeModal;window.editMedicine=editMedicine;window.deleteMedicine=deleteMedicine;window.deleteSupplier=deleteSupplier;window.openOfferForm=openOfferForm;window.decideOffer=decideOffer;window.removeFromCart=removeFromCart;window.viewInvoice=viewInvoice;window.reprintHistoryInvoice=reprintHistoryInvoice;
 document.addEventListener("DOMContentLoaded",init);

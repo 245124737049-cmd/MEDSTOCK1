@@ -43,6 +43,7 @@
       <a class="nav-link" data-page="salesHistory">▤ Sales History</a>
       <a class="nav-link" data-page="suppliers">♧ Suppliers</a>
       <a class="nav-link" data-page="comparison">⚖ Medicine Intelligence</a>
+      <a class="nav-link" data-page="aiInsights">✦ AI Purchase Advisor</a>
       <a class="nav-link" data-page="reports">▥ Reports & Analytics</a>
     </nav>
     <div class="sidebar-bottom">
@@ -142,6 +143,23 @@
       <div class="panel"><div class="history-filters"><input id="intelligenceSearch" type="search" placeholder="Search medicine, ingredient, strength or supplier"><select id="intelligenceSort"><option value="name">Sort by medicine name</option><option value="price">Lowest pack price first</option><option value="expiry">Nearest expiry first</option></select></div><div id="intelligenceGroups" class="intelligence-groups"></div></div>
     </section>
 
+    <section id="aiInsights" class="page">
+      <div class="welcome"><div><h2>AI Purchase Advisor</h2><p>Decision support built from your saved stock, sales, supplier and offer data.</p></div><button class="primary-btn" onclick="renderAIInsights()">↻ Refresh insights</button></div>
+      <div class="alert-banner">Smart recommendations are rule-based decision support from your records, not a medical diagnosis, product-authenticity certificate or automatic purchase order. Verify all product and supplier documents before buying.</div>
+      <div class="stats-grid">
+        <div class="stat-card"><p>Potential Reorder Alerts</p><h2 id="aiLowStock">0</h2><small>Based on your minimum stock levels</small></div>
+        <div class="stat-card"><p>Expiry Risk Batches</p><h2 id="aiExpiryRisk">0</h2><small>Expiring within 60 days or expired</small></div>
+        <div class="stat-card"><p>Value at Expiry Risk</p><h2 id="aiExpiryValue">₹0</h2><small>Purchase value of affected stock</small></div>
+        <div class="stat-card"><p>Supplier Offers to Review</p><h2 id="aiOffersReview">0</h2><small>Pending supplier decisions</small></div>
+      </div>
+      <div class="dashboard-grid">
+        <div class="panel"><div class="panel-heading"><h3>Priority actions</h3><span>Based on current records</span></div><div id="aiPriorityList" class="insight-list"></div></div>
+        <div class="panel"><div class="panel-heading"><h3>Purchase opportunities</h3><span>Offer comparison</span></div><div id="aiPurchaseList" class="insight-list"></div></div>
+      </div>
+      <div class="panel"><div class="panel-heading"><div><h3>Reorder planner</h3><p class="muted tiny">Suggested quantities use your minimum-stock setting; review actual demand before ordering.</p></div><button class="secondary-btn" onclick="exportReorderPlan()">Export reorder CSV</button></div><div class="table-wrap"><table><thead><tr><th>Medicine</th><th>Batch</th><th>Available</th><th>Minimum</th><th>Suggested top-up</th><th>Expiry</th><th>Priority</th></tr></thead><tbody id="aiReorderTable"></tbody></table></div></div>
+      <div class="panel"><div class="panel-heading"><div><h3>Offer ranking explanation</h3><p class="muted tiny">Ranks only offers with matching entered medicine, composition, strength and dosage form.</p></div><button class="secondary-btn" onclick="showPage('suppliers')">Manage suppliers</button></div><div id="aiOfferRanking" class="insight-list"></div></div>
+    </section>
+
     <section id="reports" class="page">
       <div class="welcome"><div><h2>Reports & Analytics</h2><p>Understand your pharmacy's performance.</p></div><button class="primary-btn" id="exportBtn">⬇ Export CSV</button></div>
       <div class="stats-grid"><div class="stat-card"><p>Total Revenue</p><h2 id="reportRevenue">₹0</h2></div><div class="stat-card"><p>Total Invoices</p><h2 id="reportInvoices">0</h2></div><div class="stat-card"><p>Inventory Value</p><h2 id="inventoryValue">₹0</h2></div><div class="stat-card"><p>Low Stock Items</p><h2 id="reportLow">0</h2></div></div>
@@ -180,6 +198,13 @@
 <div class="form-group"><label>Purchase Price (₹) *</label><input id="offerPrice" type="number" min="0" step="0.01" required></div>
 <div class="form-group"><label>Available Stock *</label><input id="offerStock" type="number" min="0" required></div>
 <div class="form-group"><label>Expiry Date *</label><input id="offerExpiry" type="date" required></div>
+<div class="form-group"><label>Batch Number / Lot</label><input id="offerBatch" placeholder="Supplier batch or lot"></div>
+<div class="form-group"><label>MRP per pack (₹)</label><input id="offerMrp" type="number" min="0" step="0.01" placeholder="Optional"></div>
+<div class="form-group"><label>Discount (%)</label><input id="offerDiscount" type="number" min="0" max="100" step="0.01" value="0"></div>
+<div class="form-group"><label>Minimum order quantity</label><input id="offerMinOrder" type="number" min="1" value="1"></div>
+<div class="form-group"><label>Estimated delivery (days)</label><input id="offerDelivery" type="number" min="0" value="0"></div>
+<div class="form-group"><label>Barcode / GTIN</label><input id="offerBarcode" placeholder="Optional barcode number"></div>
+<div class="form-group"><label>Offer notes</label><input id="offerNotes" placeholder="Invoice reference, scheme, conditions"></div>
 </div><button class="primary-btn full-btn" type="submit">Save Medicine Offer</button></form></div></div>
 <div id="toast" class="toast"></div>
 </body></html>
