@@ -103,3 +103,43 @@ alter table public.supplier_offers add column if not exists delivery_days intege
 alter table public.supplier_offers add column if not exists barcode text not null default '';
 alter table public.supplier_offers add column if not exists offer_notes text not null default '';
 create index if not exists supplier_offers_user_expiry_idx on public.supplier_offers(user_id, expiry_date);
+
+
+-- MEDSTOCK ADVANCED OPERATIONS SUITE
+alter table public.medicines add column if not exists barcode text not null default '';
+
+create table if not exists public.purchase_orders (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null references auth.users(id) on delete cascade,
+ po_number text not null,
+ supplier_id uuid references public.suppliers(id) on delete set null,
+ status text not null default 'draft' check(status in ('draft','sent','received','cancelled')),
+ items jsonb not null default '[]'::jsonb,
+ total numeric(12,2) not null default 0,
+ notes text not null default '',
+ created_at timestamptz not null default now(),
+ received_at timestamptz
+);
+alter table public.purchase_orders enable row level security;
+drop policy if exists "Users manage own purchase orders" on public.purchase_orders;
+create policy "Users manage own purchase orders" on public.purchase_orders for all to authenticated using(auth.uid()=user_id) with check(auth.uid()=user_id);
+create index if not exists purchase_orders_user_created_idx on public.purchase_orders(user_id,created_at desc);
+
+create table if not exists public.stock_movements (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null references auth.users(id) on delete cascade,
+ medicine_id uuid references public.medicines(id) on delete set null,
+ medicine_name text not null,
+ batch text not null default '',
+ barcode text not null default '',
+ movement_type text not null check(movement_type in ('OPENING','RECEIVED','SOLD','ADJUSTED','RETURNED')),
+ quantity integer not null,
+ reference text not null default '',
+ notes text not null default '',
+ created_at timestamptz not null default now()
+);
+alter table public.stock_movements enable row level security;
+drop policy if exists "Users manage own stock movements" on public.stock_movements;
+create policy "Users manage own stock movements" on public.stock_movements for all to authenticated using(auth.uid()=user_id) with check(auth.uid()=user_id);
+create index if not exists stock_movements_user_created_idx on public.stock_movements(user_id,created_at desc);
+create index if not exists medicines_user_barcode_idx on public.medicines(user_id,barcode);
