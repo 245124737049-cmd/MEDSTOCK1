@@ -299,7 +299,7 @@ function updatePOTotal(){let total=0;document.querySelectorAll(".po-qty").forEac
 async function createPurchaseOrder(){
  if(window.medstockAdvancedTablesMissing){toast("Run the latest database.sql in Supabase to activate purchase orders.");return;}
  const supplierId=$("poSupplier").value;if(!supplierId){toast("Choose a supplier first.");return;}
- const items=[...document.querySelectorAll(".po-qty")].filter(el=>document.querySelector('.po-include[data-id="'+el.dataset.id+'"]')?.checked).map(el=>{const m=medicines.find(x=>x.id===el.dataset.id);return m?{medicine_id:m.id,name:m.name,batch:m.batch,barcode:m.barcode||"",quantity:Math.max(1,Math.floor(Number(el.value)||1)),unit_cost:m.purchase,expiry:m.expiry}:null;}).filter(Boolean);
+ const items=[...document.querySelectorAll(".po-qty")].filter(el=>document.querySelector('.po-include[data-id="'+el.dataset.id+'"]')?.checked).map(el=>{const m=medicines.find(x=>x.id===el.dataset.id);return m?{medicine_id:m.id,name:m.name,batch:m.batch,barcode:m.barcode||"",quantity:Math.max(1,Math.floor(Number(el.value)||1)),unit_cost:m.purchase,purchase_price:m.purchase,selling_price:m.price,category:m.category,manufacturer:m.manufacturer,minimum:m.minimum,manufacture:m.manufacture,expiry:m.expiry}:null;}).filter(Boolean);
  if(!items.length){toast("Select at least one reorder line.");return;}
  const total=items.reduce((a,x)=>a+x.quantity*x.unit_cost,0),poNo="PO-"+Date.now();
  const {error}=await db.from("purchase_orders").insert({user_id:currentUser.id,po_number:poNo,supplier_id:supplierId,status:"sent",items,total,notes:$("poNotes").value.trim()});
