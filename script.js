@@ -109,7 +109,7 @@ async function completeSale(){
  try{
   // Update stock and insert invoice. For production/multiple cashiers, use a server-side database transaction/RPC.
   for(const c of cart){const m=medicines.find(x=>x.id===c.id);const {error}=await db.from("medicines").update({quantity:m.quantity-c.quantity}).eq("id",m.id);if(error)throw error;}
-  const savedItems=cart.map(x=>({...x,grossProfit:(Number(x.price)-Number(x.purchasePrice))*x.quantity}));
+  const savedItems=cart.map(x=>({...x,paymentMethod,grossProfit:(Number(x.price)-Number(x.purchasePrice))*x.quantity}));
   const {error}=await db.from("sales").insert({user_id:currentUser.id,invoice_no:invoiceNo,customer,sale_date:date,items:savedItems,total});if(error)throw error;
   const invoice={id:invoiceNo,customer,date,paymentMethod,items:savedItems,total};cart=[];$("customerName").value="";await loadAll();refreshAll();toast("Invoice generated.");printInvoice(invoice);
  }catch(e){toast("Sale could not be completed: "+e.message+" Please check stock before retrying.");await loadAll();refreshAll();}
@@ -154,11 +154,11 @@ function renderSalesHistory(){
  $("historyRevenue").textContent=money(revenue);$("historyInvoices").textContent=rows.length;$("historyUnits").textContent=units;
  $("historyProfit").textContent=profitRows.length?money(profit):"—";
  $("historyProfitNote").textContent=profitRows.length?"Calculated only from saved purchase-cost snapshots":"Older invoices do not contain historical purchase costs";
- $("historyTable").innerHTML=rows.map(x=>`<tr><td><strong>${esc(x.id)}</strong></td><td>${esc(x.customer)}</td><td>${esc(x.date)}</td><td>${(x.items||[]).reduce((n,i)=>n+Number(i.quantity||0),0)}</td><td>${esc(x.payment_method||x.paymentMethod||"Not recorded")}</td><td><strong>${money(x.total)}</strong></td><td><button class="action-btn edit-btn" onclick="viewInvoice('${esc(x.id)}')">View</button><button class="action-btn secondary-btn" onclick="reprintHistoryInvoice('${esc(x.id)}')">Print</button></td></tr>`).join("")||'<tr><td colspan="7">No invoices match these filters.</td></tr>';
+ $("historyTable").innerHTML=rows.map(x=>`<tr><td><strong>${esc(x.id)}</strong></td><td>${esc(x.customer)}</td><td>${esc(x.date)}</td><td>${(x.items||[]).reduce((n,i)=>n+Number(i.quantity||0),0)}</td><td>${esc(x.payment_method||x.paymentMethod||x.items?.[0]?.paymentMethod||"Not recorded")}</td><td><strong>${money(x.total)}</strong></td><td><button class="action-btn edit-btn" onclick="viewInvoice('${esc(x.id)}')">View</button><button class="action-btn secondary-btn" onclick="reprintHistoryInvoice('${esc(x.id)}')">Print</button></td></tr>`).join("")||'<tr><td colspan="7">No invoices match these filters.</td></tr>';
 }
 function viewInvoice(id){
  const inv=sales.find(x=>x.id===id);if(!inv)return;selectedHistoryInvoice=inv;
- $("invoiceDetailTitle").textContent="Invoice "+inv.id;$("invoiceDetailMeta").textContent=inv.customer+" • "+inv.date+" • "+(inv.payment_method||inv.paymentMethod||"Payment not recorded");
+ $("invoiceDetailTitle").textContent="Invoice "+inv.id;$("invoiceDetailMeta").textContent=inv.customer+" • "+inv.date+" • "+(inv.payment_method||inv.paymentMethod||inv.items?.[0]?.paymentMethod||"Payment not recorded");
  $("invoiceDetailTable").innerHTML=(inv.items||[]).map(i=>`<tr><td>${esc(i.name)}</td><td>${Number(i.quantity||0)}</td><td>${money(i.price)}</td><td>${money(Number(i.price||0)*Number(i.quantity||0))}</td><td>${i.grossProfit===undefined?"Not recorded":money(i.grossProfit)}</td></tr>`).join("");
  $("invoiceDetailTotal").textContent=money(inv.total);$("invoiceDetailPanel").classList.remove("hidden");$("invoiceDetailPanel").scrollIntoView({behavior:"smooth",block:"nearest"});
 }
@@ -175,7 +175,7 @@ function renderMedicineIntelligence(){
  const all=[...groups.entries()].map(([key,offers])=>({key,offers,name:offers[0].medicine_name}));
  const term=($("intelligenceSearch")?.value||"").trim().toLowerCase(),sort=$("intelligenceSort")?.value||"name";
  const visible=all.filter(g=>g.offers.some(o=>{const s=suppliers.find(x=>x.id===o.supplier_id);return [o.medicine_name,o.composition,o.strength,o.dosage_form,o.manufacturer,s?.name].join(" ").toLowerCase().includes(term);}));
- visible.sort((a,b)=>sort==="price"?Math.min(...a.offers.map(x=>Number(x.purchase_price)))-Math.min(...b.offers.map(x=>Number(x.purchase_price)):sort==="expiry"?Math.min(...a.offers.map(x=>new Date(x.expiry_date).getTime()))-Math.min(...b.offers.map(x=>new Date(x.expiry_date).getTime())):a.name.localeCompare(b.name));
+ visible.sort((a,b)=>{if(sort==="price")return Math.min(...a.offers.map(x=>Number(x.purchase_price)))-Math.min(...b.offers.map(x=>Number(x.purchase_price)));if(sort==="expiry")return Math.min(...a.offers.map(x=>new Date(x.expiry_date).getTime()))-Math.min(...b.offers.map(x=>new Date(x.expiry_date).getTime()));return a.name.localeCompare(b.name);});
  $("intelOfferCount").textContent=supplierOffers.length;$("intelGroupCount").textContent=all.length;$("intelMultiCount").textContent=all.filter(g=>g.offers.length>1).length;
  $("intelVerifiedCount").textContent=supplierOffers.filter(o=>suppliers.find(s=>s.id===o.supplier_id)?.verification_status==="verified").length;
  $("intelligenceGroups").innerHTML=visible.map(g=>{
