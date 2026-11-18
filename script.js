@@ -141,7 +141,7 @@ function renderSuppliers(){
 }
 function openOfferForm(){
  if(window.medstockOffersTableMissing){toast("Supplier offers database is not set up yet. Run database.sql in Supabase first.");return;}
- if(!suppliers.length){toast("Add at least one supplier first.");openSupplierForm();return;}
+ if(!suppliers.length){returnToOfferAfterSupplier=true;openSupplierForm();toast("First add your supplier. The medicine-offer form will open automatically after saving.");return;}
  $("offerForm").reset();$("offerSupplier").innerHTML=suppliers.map(s=>`<option value="${s.id}">${esc(s.name)}${s.company?" — "+esc(s.company):""}</option>`).join("");
  $("offerExpiry").min=todayString;$("offerExpiry").value="";$("offerMinOrder").value="1";$("offerDiscount").value="0";$("offerDelivery").value="0";$("offerModal").classList.add("show");
 }
