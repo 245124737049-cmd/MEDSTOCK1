@@ -96,7 +96,7 @@ $("medicineForm").addEventListener("submit",async e=>{
  const record={name:$("medName").value.trim(),category:$("medCategory").value,batch:$("medBatch").value.trim(),manufacturer:$("medManufacturer").value.trim(),purchase:Number($("medPurchase").value),price:Number($("medPrice").value),quantity:Number($("medQuantity").value),minimum:Number($("medMinimum").value),manufacture:$("medManufacture").value,expiry:$("medExpiry").value,barcode:$("medBarcode").value.trim()};
  if(Object.values(record).some(v=>v=== ""||v===null) || [record.purchase,record.price,record.quantity,record.minimum].some(v=>v<0)){toast("Please complete all required fields with valid values.");return;}
  if(record.expiry<todayString&&!confirm("This batch is already expired. Save for record keeping?"))return;
- try{const before=id?medicines.find(x=>x.id===id):null;const saved=await saveMedicine(record,id);const delta=before?record.quantity-before.quantity:record.quantity;if(delta!==0){const mv=await db.from("stock_movements").insert({user_id:currentUser.id,medicine_id:saved?.id||id,medicine_name:record.name,batch:record.batch,barcode:record.barcode,movement_type:before?"ADJUSTED":"OPENING",quantity:delta,reference:before?"MANUAL-ADJUSTMENT":"OPENING-BALANCE",notes:before?"Quantity changed from medicine editor":"Initial stock balance"});if(mv.error)throw mv.error;}await loadAll();closeModal("medicineModal");refreshAll();toast(id?"Medicine updated!":"Medicine added!");}catch(err){toast(err.message.includes("duplicate")?"This medicine batch already exists.":err.message);}
+ try{const before=id?medicines.find(x=>x.id===id):null;const saved=await saveMedicine(record,id);const delta=before?record.quantity-before.quantity:record.quantity;if(delta!==0&&!window.medstockAdvancedTablesMissing){const mv=await db.from("stock_movements").insert({user_id:currentUser.id,medicine_id:saved?.id||id,medicine_name:record.name,batch:record.batch,barcode:record.barcode,movement_type:before?"ADJUSTED":"OPENING",quantity:delta,reference:before?"MANUAL-ADJUSTMENT":"OPENING-BALANCE",notes:before?"Quantity changed from medicine editor":"Initial stock balance"});if(mv.error)throw mv.error;}await loadAll();closeModal("medicineModal");refreshAll();toast(id?"Medicine updated!":"Medicine added!");}catch(err){toast(err.message.includes("duplicate")?"This medicine batch already exists.":err.message);}
 });
 function renderExpiry(){const rows=medicines.filter(x=>daysLeft(x)<=30).sort((a,b)=>daysLeft(a)-daysLeft(b));$("expiryTable").innerHTML=rows.map(x=>{const d=daysLeft(x);return `<tr><td>${esc(x.name)}</td><td>${esc(x.batch)}</td><td>${x.quantity}</td><td>${esc(x.expiry)}</td><td>${d<0?Math.abs(d)+" days ago":d+" days"}</td><td>${badge(status(x))}</td></tr>`;}).join("")||'<tr><td colspan="6">No expiry alerts. Great job!</td></tr>';}
 function renderSaleOptions(){const list=medicines.filter(x=>x.quantity>0&&daysLeft(x)>=0);$("saleMedicine").innerHTML=list.map(x=>`<option value="${x.id}">${esc(x.name)} - ${money(x.price)} (${x.quantity} available)</option>`).join("")||'<option value="">No available medicines</option>';}
@@ -116,6 +116,7 @@ async async function completeSale(){
   for(const c of cart){const m=medicines.find(x=>x.id===c.id);const {error}=await db.from("medicines").update({quantity:m.quantity-c.quantity}).eq("id",m.id);if(error)throw error;}
   const savedItems=cart.map(x=>({...x,paymentMethod,grossProfit:(Number(x.price)-Number(x.purchasePrice))*x.quantity}));
   const {error}=await db.from("sales").insert({user_id:currentUser.id,invoice_no:invoiceNo,customer,sale_date:date,items:savedItems,total});if(error)throw error;
+  if(!window.medstockAdvancedTablesMissing){for(const c of cart){const m=medicines.find(x=>x.id===c.id);const mv=await db.from("stock_movements").insert({user_id:currentUser.id,medicine_id:m.id,medicine_name:m.name,batch:m.batch,barcode:m.barcode||"",movement_type:"SOLD",quantity:-c.quantity,reference:invoiceNo,notes:"Point-of-sale invoice"});if(mv.error)throw mv.error;}}
   const invoice={id:invoiceNo,customer,date,paymentMethod,items:savedItems,total};cart=[];$("customerName").value="";await loadAll();refreshAll();toast("Invoice generated.");printInvoice(invoice);
  }catch(e){toast("Sale could not be completed: "+e.message+" Please check stock before retrying.");await loadAll();refreshAll();}
 }
@@ -296,6 +297,7 @@ function renderPODraft(){
 }
 function updatePOTotal(){let total=0;document.querySelectorAll(".po-qty").forEach(el=>{const id=el.dataset.id,include=document.querySelector('.po-include[data-id="'+id+'"]')?.checked,m=medicines.find(x=>x.id===id);if(include&&m)total+=Math.max(0,Number(el.value)||0)*m.purchase;});if($("poDraftTotal"))$("poDraftTotal").textContent=money(total);}
 async function createPurchaseOrder(){
+ if(window.medstockAdvancedTablesMissing){toast("Run the latest database.sql in Supabase to activate purchase orders.");return;}
  const supplierId=$("poSupplier").value;if(!supplierId){toast("Choose a supplier first.");return;}
  const items=[...document.querySelectorAll(".po-qty")].filter(el=>document.querySelector('.po-include[data-id="'+el.dataset.id+'"]')?.checked).map(el=>{const m=medicines.find(x=>x.id===el.dataset.id);return m?{medicine_id:m.id,name:m.name,batch:m.batch,barcode:m.barcode||"",quantity:Math.max(1,Math.floor(Number(el.value)||1)),unit_cost:m.purchase,expiry:m.expiry}:null;}).filter(Boolean);
  if(!items.length){toast("Select at least one reorder line.");return;}
@@ -305,7 +307,7 @@ async function createPurchaseOrder(){
  await loadAll();renderAdvancedSuite();toast("Purchase order "+poNo+" created.");
 }
 async function receivePurchaseOrder(id){
- const po=purchaseOrders.find(x=>x.id===id);if(!po||po.status!=="sent")return;
+ const po=purchaseOrders.find(x=>x.id===id);if(window.medstockAdvancedTablesMissing){toast("Run the latest database.sql in Supabase first.");return;}if(!po||po.status!=="sent")return;
  if(!confirm("Receive this order into the existing batch records? Check the physical delivery, batch and expiry before confirming."))return;
  try{
   for(const line of po.items||[]){const m=medicines.find(x=>x.id===line.medicine_id);if(!m)continue;
