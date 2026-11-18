@@ -40,7 +40,9 @@
       <a class="nav-link" data-page="inventory">▤ Medicine Inventory</a>
       <a class="nav-link" data-page="expiry">◷ Expiry Management</a>
       <a class="nav-link" data-page="sales">▣ Sales & Billing</a>
+      <a class="nav-link" data-page="salesHistory">▤ Sales History</a>
       <a class="nav-link" data-page="suppliers">♧ Suppliers</a>
+      <a class="nav-link" data-page="comparison">⚖ Medicine Intelligence</a>
       <a class="nav-link" data-page="reports">▥ Reports & Analytics</a>
     </nav>
     <div class="sidebar-bottom">
@@ -92,7 +94,7 @@
     <section id="sales" class="page">
       <div class="welcome"><div><h2>Sales & Billing</h2><p>Create bills and automatically update stock.</p></div></div>
       <div class="sales-layout">
-        <div class="panel"><h3>Create New Bill</h3><label>Choose Medicine</label><select id="saleMedicine"></select><label>Quantity</label><input type="number" id="saleQuantity" min="1" value="1"><button class="primary-btn full-btn" id="addCartBtn">Add to Cart</button><div class="divider"></div><h3>Customer Details</h3><input id="customerName" placeholder="Customer name (optional)"><div class="cart-items" id="cartItems">No items added yet.</div><div class="total-line"><span>Total Amount</span><strong id="cartTotal">₹0.00</strong></div><button class="primary-btn full-btn" id="completeSaleBtn">Generate Invoice</button></div>
+        <div class="panel"><h3>Create New Bill</h3><label>Choose Medicine</label><select id="saleMedicine"></select><label>Quantity</label><input type="number" id="saleQuantity" min="1" value="1"><button class="primary-btn full-btn" id="addCartBtn">Add to Cart</button><div class="divider"></div><h3>Customer Details</h3><input id="customerName" placeholder="Customer name (optional)"><label>Payment Method</label><select id="paymentMethod"><option>Cash</option><option>UPI</option><option>Card</option><option>Other</option></select><div class="cart-items" id="cartItems">No items added yet.</div><div class="total-line"><span>Total Amount</span><strong id="cartTotal">₹0.00</strong></div><button class="primary-btn full-btn" id="completeSaleBtn">Generate Invoice</button></div>
         <div class="panel"><h3>Recent Sales</h3><div class="table-wrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Amount</th></tr></thead><tbody id="salesTable"></tbody></table></div></div>
       </div>
     </section>
@@ -102,6 +104,42 @@
       <div class="stats-grid supplier-stats"><div class="stat-card"><p>Total Suppliers</p><h2 id="supplierCount">0</h2></div><div class="stat-card"><p>Medicine Offers</p><h2 id="offerCount">0</h2></div><div class="stat-card"><p>Selected Offers</p><h2 id="selectedOfferCount">0</h2></div><div class="stat-card"><p>Pending Comparisons</p><h2 id="pendingOfferCount">0</h2></div></div>
       <div class="panel"><div class="panel-heading"><h3>Registered Suppliers</h3></div><div class="table-wrap"><table><thead><tr><th>Supplier</th><th>Company</th><th>Phone</th><th>Email</th><th>Drug Licence</th><th>Verification</th><th>Actions</th></tr></thead><tbody id="supplierTable"></tbody></table></div></div>
       <div class="panel supplier-comparison"><div class="panel-heading"><div><h3>Medicine / Tablet Offer Comparison</h3><p class="muted tiny">Compare composition, strength, dosage form, manufacturer, pack size, price, stock and expiry.</p></div><input id="offerSearch" class="compact-search" type="search" placeholder="Filter medicine or supplier..."></div><div class="table-wrap"><table><thead><tr><th>Medicine / Tablet</th><th>Composition</th><th>Strength</th><th>Form</th><th>Manufacturer</th><th>Pack</th><th>Price</th><th>Stock</th><th>Expiry</th><th>Supplier</th><th>Recommendation</th><th>Decision</th></tr></thead><tbody id="offerTable"></tbody></table></div><p class="tiny muted">Recommendation is a comparison aid, not a quality or safety certification. Verify licences, product authenticity, batch details and expiry before purchasing.</p></div>
+    </section>
+
+    <section id="salesHistory" class="page">
+      <div class="welcome"><div><h2>Sales History</h2><p>Search every invoice, inspect its items, review margins and reprint receipts.</p></div><button class="primary-btn" id="historyExportBtn">⬇ Export filtered CSV</button></div>
+      <div class="stats-grid history-stats">
+        <div class="stat-card"><p>Filtered Revenue</p><h2 id="historyRevenue">₹0.00</h2><small>Based on selected dates</small></div>
+        <div class="stat-card"><p>Invoices</p><h2 id="historyInvoices">0</h2><small>Matching transactions</small></div>
+        <div class="stat-card"><p>Items Sold</p><h2 id="historyUnits">0</h2><small>Total units in matching invoices</small></div>
+        <div class="stat-card"><p>Recorded Gross Profit</p><h2 id="historyProfit">—</h2><small id="historyProfitNote">Available for invoices with saved cost snapshots</small></div>
+      </div>
+      <div class="panel">
+        <div class="history-filters">
+          <input id="historySearch" type="search" placeholder="Search invoice, customer or medicine">
+          <label>From <input id="historyFrom" type="date"></label>
+          <label>To <input id="historyTo" type="date"></label>
+          <button class="secondary-btn" id="clearHistoryFilters">Clear filters</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Items</th><th>Payment</th><th>Total</th><th>Actions</th></tr></thead><tbody id="historyTable"></tbody></table></div>
+      </div>
+      <div class="panel hidden" id="invoiceDetailPanel">
+        <div class="panel-heading"><div><h3 id="invoiceDetailTitle">Invoice details</h3><p class="muted tiny" id="invoiceDetailMeta"></p></div><div><button class="secondary-btn" id="reprintInvoiceBtn">Print invoice</button><button class="text-btn" id="closeInvoiceDetail">Close</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Medicine</th><th>Quantity</th><th>Unit price</th><th>Line total</th><th>Recorded gross profit</th></tr></thead><tbody id="invoiceDetailTable"></tbody></table></div>
+        <div class="total-line"><span>Invoice total</span><strong id="invoiceDetailTotal">₹0.00</strong></div>
+      </div>
+    </section>
+
+    <section id="comparison" class="page">
+      <div class="welcome"><div><h2>Medicine Intelligence</h2><p>Compare supplier offers by exact composition, strength, dosage form, pack, price, stock and expiry.</p></div><button class="primary-btn" onclick="openOfferForm()">+ Add medicine offer</button></div>
+      <div class="alert-banner">Comparison is an inventory purchasing aid, not a clinical interchangeability or authenticity certificate. Different dosage forms, strengths or ingredients must not be treated as equivalent.</div>
+      <div class="stats-grid">
+        <div class="stat-card"><p>Offer Records</p><h2 id="intelOfferCount">0</h2></div>
+        <div class="stat-card"><p>Medicine Groups</p><h2 id="intelGroupCount">0</h2></div>
+        <div class="stat-card"><p>Groups With Multiple Offers</p><h2 id="intelMultiCount">0</h2></div>
+        <div class="stat-card"><p>Offers From Verified Suppliers</p><h2 id="intelVerifiedCount">0</h2></div>
+      </div>
+      <div class="panel"><div class="history-filters"><input id="intelligenceSearch" type="search" placeholder="Search medicine, ingredient, strength or supplier"><select id="intelligenceSort"><option value="name">Sort by medicine name</option><option value="price">Lowest pack price first</option><option value="expiry">Nearest expiry first</option></select></div><div id="intelligenceGroups" class="intelligence-groups"></div></div>
     </section>
 
     <section id="reports" class="page">
