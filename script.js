@@ -308,25 +308,35 @@ async function createPurchaseOrder(){
 }
 async function receivePurchaseOrder(id){
  const po=purchaseOrders.find(x=>x.id===id);if(window.medstockAdvancedTablesMissing){toast("Run the latest database.sql in Supabase first.");return;}if(!po||po.status!=="sent")return;
- if(!confirm("Receive this order into the existing batch records? Check the physical delivery, batch and expiry before confirming."))return;
+ if(!confirm("Start goods receipt? Confirm the actual batch number, expiry and barcode printed on every delivered pack."))return;
+ const receipts=[];
+ for(const line of po.items||[]){
+  const actualBatch=prompt("Actual delivered batch / lot for "+line.name,line.batch||"");if(actualBatch===null)return;
+  const actualExpiry=prompt("Actual expiry date (YYYY-MM-DD) for "+line.name,line.expiry||"");if(actualExpiry===null)return;
+  const actualBarcode=prompt("Actual barcode / GTIN (leave blank if not printed) for "+line.name,line.barcode||"");if(actualBarcode===null)return;
+  if(!actualBatch.trim()||!/^\\d{4}-\\d{2}-\\d{2}$/.test(actualExpiry)||actualExpiry<todayString){toast("Receipt stopped: enter a valid, non-expired batch expiry date.");return;}
+  receipts.push({...line,actualBatch:actualBatch.trim(),actualExpiry,actualBarcode:actualBarcode.trim()});
+ }
  try{
-  for(const line of po.items||[]){const m=medicines.find(x=>x.id===line.medicine_id);if(!m)continue;
-   const {error}=await db.from("medicines").update({quantity:m.quantity+Number(line.quantity)}).eq("id",m.id);if(error)throw error;
-   const mv=await db.from("stock_movements").insert({user_id:currentUser.id,medicine_id:m.id,medicine_name:m.name,batch:m.batch,barcode:m.barcode||"",movement_type:"RECEIVED",quantity:Number(line.quantity),reference:po.po_number,notes:"Purchase order receipt"});
+  for(const line of receipts){
+   let target=medicines.find(m=>m.name.toLowerCase()===line.name.toLowerCase()&&m.batch.toLowerCase()===line.actualBatch.toLowerCase());
+   if(target){const {error}=await db.from("medicines").update({quantity:target.quantity+Number(line.quantity),barcode:line.actualBarcode||target.barcode||""}).eq("id",target.id);if(error)throw error;}
+   else{const created=await db.from("medicines").insert({user_id:currentUser.id,name:line.name,category:line.category||"Other",batch:line.actualBatch,manufacturer:line.manufacturer||"",purchase:Number(line.purchase_price||0),price:Number(line.selling_price||0),quantity:Number(line.quantity),minimum:Number(line.minimum||1),manufacture:line.manufacture||null,expiry:line.actualExpiry,barcode:line.actualBarcode}).select().single();if(created.error)throw created.error;target=created.data;}
+   const mv=await db.from("stock_movements").insert({user_id:currentUser.id,medicine_id:target?.id,medicine_name:line.name,batch:line.actualBatch,barcode:line.actualBarcode,movement_type:"RECEIVED",quantity:Number(line.quantity),reference:po.po_number,notes:"Goods receipt; actual batch and expiry confirmed"});
    if(mv.error)throw mv.error;
   }
   const {error}=await db.from("purchase_orders").update({status:"received",received_at:new Date().toISOString()}).eq("id",id);if(error)throw error;
-  await loadAll();refreshAll();toast("Purchase order received and stock updated.");
- }catch(e){toast("Receipt incomplete: "+e.message+". Check batch quantities and movements before retrying.");await loadAll();refreshAll();}
+  await loadAll();refreshAll();toast("Goods received. Actual batch details were saved.");
+ }catch(e){toast("Receipt may be partially processed: "+e.message+". Inspect the batch ledger before retrying.");await loadAll();refreshAll();}
 }
 async function cancelPurchaseOrder(id){if(!confirm("Cancel this purchase order?"))return;const {error}=await db.from("purchase_orders").update({status:"cancelled"}).eq("id",id);if(error){toast(error.message);return;}await loadAll();refreshAll();toast("Purchase order cancelled.");}
 function renderPORegister(){
- if(!$("poRegister"))return;
+ if(!$("poRegister"))return;if(window.medstockAdvancedTablesMissing){$("poRegister").innerHTML="<tr><td colspan=\\"7\\">Run the latest database.sql in Supabase to activate purchase orders.</td></tr>";return;}
  $("poRegister").innerHTML=purchaseOrders.map(p=>{const s=suppliers.find(x=>x.id===p.supplier_id);return '<tr><td><b>'+esc(p.po_number)+'</b></td><td>'+esc(s?.name||"Supplier unavailable")+'</td><td>'+esc((p.created_at||"").slice(0,10))+'</td><td>'+(p.items||[]).length+'</td><td>'+money(p.total)+'</td><td>'+badge(p.status==="received"?"Available":p.status==="cancelled"?"Expired":"Low Stock")+'</td><td>'+(p.status==="sent"?'<button class="action-btn edit-btn" onclick="receivePurchaseOrder(\''+p.id+'\')">Receive</button> <button class="action-btn delete-btn" onclick="cancelPurchaseOrder(\''+p.id+'\')">Cancel</button>':"—")+'</td></tr>';}).join("")||'<tr><td colspan="7">No purchase orders yet.</td></tr>';
 }
 function exportPurchaseOrders(){const rows=[["PO","Supplier","Date","Status","Total","Items"]].concat(purchaseOrders.map(p=>[p.po_number,suppliers.find(s=>s.id===p.supplier_id)?.name||"",p.created_at,p.status,p.total,(p.items||[]).map(x=>x.name+" x "+x.quantity).join("; ")]));downloadCSV("MedStock-Purchase-Orders.csv",rows);}
 function renderTraceLedger(){
- if(!$("traceLedger"))return;
+ if(!$("traceLedger"))return;if(window.medstockAdvancedTablesMissing){$("traceLedger").innerHTML="<tr><td colspan=\\"8\\">Run the latest database.sql in Supabase to activate the stock movement ledger.</td></tr>";return;}
  const term=($("traceSearch")?.value||"").toLowerCase(),type=$("traceType")?.value||"",rows=stockMovements.filter(m=>(!type||m.movement_type===type)&&[m.medicine_name,m.batch,m.barcode,m.reference,m.movement_type].join(" ").toLowerCase().includes(term));
  $("traceBatches").textContent=new Set(medicines.map(m=>m.id)).size;$("traceMovements").textContent=stockMovements.length;$("traceCoverage").textContent=(medicines.length?Math.round(100*medicines.filter(m=>m.barcode).length/medicines.length):0)+"%";$("traceUnits").textContent=stockMovements.reduce((a,x)=>a+Math.abs(Number(x.quantity)||0),0);
  $("traceLedger").innerHTML=rows.map(m=>'<tr><td>'+esc((m.created_at||"").replace("T"," ").slice(0,16))+'</td><td>'+esc(m.medicine_name)+'</td><td>'+esc(m.batch)+'</td><td>'+esc(m.barcode||"—")+'</td><td>'+esc(m.movement_type)+'</td><td>'+m.quantity+'</td><td>'+esc(m.reference)+'</td><td>'+esc(m.notes)+'</td></tr>').join("")||'<tr><td colspan="8">No stock movements recorded yet. New receipts and sales will appear here.</td></tr>';
