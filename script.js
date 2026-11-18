@@ -64,7 +64,7 @@ async function saveMedicine(record,id){
 function showPage(page){
   document.querySelectorAll(".page").forEach(x=>x.classList.remove("active-page"));$(page).classList.add("active-page");
   document.querySelectorAll(".nav-link").forEach(x=>x.classList.toggle("active",x.dataset.page===page));
-  const titles={dashboard:"Dashboard",inventory:"Medicine Inventory",expiry:"Expiry Management",sales:"Sales & Billing",salesHistory:"Sales History",suppliers:"Suppliers",comparison:"Medicine Intelligence",aiInsights:"AI Purchase Advisor",reports:"Reports & Analytics"};
+  const titles={dashboard:"Dashboard",inventory:"Medicine Inventory",expiry:"Expiry Management",sales:"Sales & Billing",salesHistory:"Sales History",suppliers:"Suppliers",comparison:"Medicine Intelligence",aiInsights:"AI Purchase Advisor",demandLab:"Demand Lab",riskRadar:"Risk Radar",reports:"Reports & Analytics"};
   $("pageTitle").textContent=titles[page]||"MedStock";refreshAll();
 }
 document.querySelectorAll(".nav-link").forEach(a=>a.addEventListener("click",()=>showPage(a.dataset.page)));
@@ -237,12 +237,52 @@ function exportReorderPlan(){
  const csv=rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n"),blob=new Blob(["\\uFEFF"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="MedStock-Reorder-Plan.csv";a.click();URL.revokeObjectURL(url);
 }
 
+
+function demandRows(){
+ const since=new Date(todayString+"T00:00:00");since.setDate(since.getDate()-29);const from=localDate(since),sold=new Map();let units=0;
+ sales.filter(s=>s.date>=from&&s.date<=todayString).forEach(s=>(s.items||[]).forEach(i=>{const id=i.id||i.medicine_id;if(id){const q=Number(i.quantity||0);sold.set(id,(sold.get(id)||0)+q);units+=q;}}));
+ return {units,rows:medicines.map(m=>{const count=sold.get(m.id)||0,rate=count/30,cover=rate?m.quantity/rate:Infinity,target=Math.ceil(rate*14);return {m,count,rate,cover,target,order:Math.max(0,target-m.quantity)};})};
+}
+function renderDemandLab(){
+ const d=demandRows(),active=d.rows.filter(x=>x.count>0),critical=d.rows.filter(x=>x.rate>0&&x.cover<7),value=d.rows.reduce((a,x)=>a+x.order*x.m.purchase,0);
+ $("demandUnits").textContent=d.units;$("demandLines").textContent=active.length;$("demandStockouts").textContent=critical.length;$("demandValue").textContent=money(value);
+ $("demandTable").innerHTML=[...d.rows].sort((a,b)=>a.cover-b.cover).map(x=>"<tr><td><b>"+esc(x.m.name)+"</b><small class='table-sub'>"+esc(x.m.batch)+"</small></td><td>"+x.m.quantity+"</td><td>"+x.count+"</td><td>"+x.rate.toFixed(2)+"</td><td>"+(Number.isFinite(x.cover)?x.cover.toFixed(1)+" days":"No velocity")+"</td><td>"+x.target+"</td><td><b>"+x.order+"</b></td><td>"+(x.rate&&x.cover<7?badge("Low Stock"):x.rate?badge("Available"):badge("Expiring Soon"))+"</td></tr>").join("")||"<tr><td colspan='8'>Add inventory and record sales to activate forecasting.</td></tr>";
+ const fast=d.rows.filter(x=>x.count>0&&x.cover<14).length,steady=d.rows.filter(x=>x.count>0&&x.cover>=14).length,none=d.rows.filter(x=>!x.count).length;
+ $("velocityMix").innerHTML=[["Fast-moving / low cover",fast],["Demand with healthy cover",steady],["No sales in 30 days",none]].map(x=>"<div class='velocity-row'><span>"+x[0]+"</span><b>"+x[1]+"</b></div>").join("");
+}
+function riskRows(){
+ const d=demandRows();return medicines.map(m=>{const days=daysLeft(m),sold=d.rows.find(x=>x.m.id===m.id)?.count||0;let risk="",advice="",rank=9;
+ if(days<0){risk="Expired stock";advice="Quarantine from sale; follow approved return/disposal process.";rank=0;}
+ else if(days<=30){risk="Critical expiry";advice="Review supplier return options and lawful stock handling.";rank=1;}
+ else if(days<=90){risk="Near expiry";advice="Review FEFO rotation where appropriate.";rank=2;}
+ else if(m.quantity>0&&!sold){risk="No recorded movement";advice="Check purchase history and shelf placement before reordering.";rank=3;}
+ else if(m.price<m.purchase){risk="Negative unit margin";advice="Review selling price, discounts and recorded cost.";rank=4;}
+ return risk?{m,days,risk,advice,rank,value:m.quantity*m.purchase}:null;}).filter(Boolean).sort((a,b)=>a.rank-b.rank||a.days-b.days);
+}
+function renderRiskRadar(){
+ const r=riskRows(),expired=r.filter(x=>x.days<0),near=r.filter(x=>x.days>=0&&x.days<=90),slow=r.filter(x=>x.risk==="No recorded movement"),margin=r.filter(x=>x.risk==="Negative unit margin");
+ $("radarExpired").textContent=money(expired.reduce((a,x)=>a+x.value,0));$("radarNear").textContent=money(near.reduce((a,x)=>a+x.value,0));$("radarSlow").textContent=slow.length;$("radarMargin").textContent=margin.length;
+ $("riskRegister").innerHTML=r.map(x=>"<tr><td><span class='risk-label risk-"+x.rank+"'>"+esc(x.risk)+"</span></td><td><b>"+esc(x.m.name)+"</b><small class='table-sub'>"+esc(x.m.batch)+"</small></td><td>"+x.m.quantity+"</td><td>"+esc(x.m.expiry)+"</td><td>"+money(x.value)+"</td><td>"+esc(x.advice)+"</td></tr>").join("")||"<tr><td colspan='6'>No risk signals detected in current records.</td></tr>";
+ const scores=suppliers.map(s=>{const offers=supplierOffers.filter(o=>o.supplier_id===s.id),verified=s.verification_status==="verified",fresh=offers.filter(o=>Math.ceil((new Date(o.expiry_date+"T00:00:00")-new Date(todayString+"T00:00:00"))/86400000)>90).length,score=Math.round((verified?50:0)+(offers.length?25:0)+(offers.length?25*fresh/offers.length:0));return {s,offers:offers.length,score};}).sort((a,b)=>b.score-a.score);
+ $("supplierRadar").innerHTML=scores.map(x=>"<article class='supplier-score'><div class='supplier-score-head'><div><b>"+esc(x.s.name)+"</b><small>"+x.offers+" offers · "+esc(x.s.verification_status||"pending")+" status</small></div><strong>"+x.score+"/100</strong></div><div class='score-track'><span style='width:"+x.score+"%'></span></div><small class='muted'>Score reflects recorded verification, offer coverage and expiry horizon only.</small></article>").join("")||"<p class='muted'>Add suppliers and offers to build this index.</p>";
+}
+function renderCommandCenter(){
+ const inv=medicines.reduce((a,x)=>a+x.quantity*x.purchase,0),month=todayString.slice(0,7),rev=sales.filter(x=>(x.date||"").slice(0,7)===month).reduce((a,x)=>a+x.total,0),risk=riskRows(),cash=risk.filter(x=>x.days<=90).reduce((a,x)=>a+x.value,0),critical=medicines.filter(x=>x.quantity<=x.minimum||daysLeft(x)<=30).length;
+ $("capitalValue").textContent=money(inv);$("monthRevenue").textContent=money(rev);$("riskCapital").textContent=money(cash);$("criticalBatches").textContent=critical;
+ const acts=risk.slice(0,3).map(x=>({tag:x.risk,title:x.m.name+" · "+x.m.batch,desc:x.advice,page:"riskRadar"})).concat(demandRows().rows.filter(x=>x.rate>0&&x.cover<7).slice(0,2).map(x=>({tag:"Stockout watch",title:x.m.name+" may run out soon",desc:"Estimated cover "+x.cover.toFixed(1)+" days from recorded sales.",page:"demandLab"})));
+ $("commandActions").innerHTML=acts.slice(0,4).map(x=>"<article class='command-action'><span class='action-orb'>!</span><div><span class='eyebrow'>"+esc(x.tag)+"</span><b>"+esc(x.title)+"</b><p>"+esc(x.desc)+"</p></div><button class='text-btn' onclick='showPage(&quot;"+x.page+"&quot;)'>Review →</button></article>").join("")||"<p class='muted'>No priority actions. Add stock and sales records to unlock operational signals.</p>";
+}
+function exportRiskRegister(){
+ const rows=[["Risk","Medicine","Batch","Units","Expiry","Purchase Value","Review"]].concat(riskRows().map(x=>[x.risk,x.m.name,x.m.batch,x.m.quantity,x.m.expiry,x.value,x.advice]));
+ const csv=rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n"),blob=new Blob(["\\uFEFF"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="MedStock-Risk-Register.csv";a.click();URL.revokeObjectURL(url);
+}
+
 function updateReports(){const revenue=sales.reduce((a,x)=>a+x.total,0),value=medicines.reduce((a,x)=>a+x.quantity*x.purchase,0),low=medicines.filter(x=>x.quantity<=x.minimum&&daysLeft(x)>=0).length;$("reportRevenue").textContent=money(revenue);$("reportInvoices").textContent=sales.length;$("inventoryValue").textContent=money(value);$("reportLow").textContent=low;$("reportTable").innerHTML=sales.map(x=>`<tr><td>${esc(x.id)}</td><td>${esc(x.customer)}</td><td>${esc(x.date)}</td><td>${x.items.length}</td><td>${money(x.total)}</td></tr>`).join("")||'<tr><td colspan="5">No reports available yet.</td></tr>';}
 function exportReport(){const rows=[["Invoice","Customer","Date","Total"],...sales.map(x=>[x.id,x.customer,x.date,x.total])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="MedStock-Sales-Report.csv";a.click();URL.revokeObjectURL(url);}
 function updateChart(){const canvas=$("salesChart");if(!canvas||!window.Chart)return;const labels=[],values=[];for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const ds=localDate(d);labels.push(d.toLocaleDateString("en-IN",{day:"numeric",month:"short"}));values.push(sales.filter(x=>x.date===ds).reduce((a,x)=>a+x.total,0));}if(salesChart)salesChart.destroy();salesChart=new Chart(canvas,{type:"bar",data:{labels,datasets:[{label:"Sales (₹)",data:values,backgroundColor:"#3d91d3",borderRadius:6,maxBarThickness:35}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{callback:v=>"₹"+v}}}}});}
 function closeModal(id){$(id).classList.remove("show");}
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)m.classList.remove("show");}));
-function refreshAll(){updateDashboard();renderInventory();renderExpiry();renderSaleOptions();renderCart();renderSales();renderSuppliers();renderSalesHistory();renderMedicineIntelligence();renderAIInsights();updateReports();}
+function refreshAll(){renderCommandCenter();renderDemandLab();renderRiskRadar();updateDashboard();renderInventory();renderExpiry();renderSaleOptions();renderCart();renderSales();renderSuppliers();renderSalesHistory();renderMedicineIntelligence();renderAIInsights();updateReports();}
 $("addCartBtn").onclick=addToCart;$("completeSaleBtn").onclick=completeSale;$("exportBtn").onclick=exportReport;
 window.openMedicineForm=openMedicineForm;window.openSupplierForm=openSupplierForm;window.renderAIInsights=renderAIInsights;window.exportReorderPlan=exportReorderPlan;window.showPage=showPage;window.closeModal=closeModal;window.editMedicine=editMedicine;window.deleteMedicine=deleteMedicine;window.deleteSupplier=deleteSupplier;window.openOfferForm=openOfferForm;window.decideOffer=decideOffer;window.removeFromCart=removeFromCart;window.viewInvoice=viewInvoice;window.reprintHistoryInvoice=reprintHistoryInvoice;
 document.addEventListener("DOMContentLoaded",init);
