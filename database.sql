@@ -143,3 +143,13 @@ drop policy if exists "Users manage own stock movements" on public.stock_movemen
 create policy "Users manage own stock movements" on public.stock_movements for all to authenticated using(auth.uid()=user_id) with check(auth.uid()=user_id);
 create index if not exists stock_movements_user_created_idx on public.stock_movements(user_id,created_at desc);
 create index if not exists medicines_user_barcode_idx on public.medicines(user_id,barcode);
+
+-- Capture current on-hand quantities as the starting point for the audit ledger.
+insert into public.stock_movements(user_id,medicine_id,medicine_name,batch,barcode,movement_type,quantity,reference,notes)
+select m.user_id,m.id,m.name,m.batch,coalesce(m.barcode,''),'OPENING',m.quantity,'MIGRATION-OPENING','Opening balance captured when the advanced ledger was installed'
+from public.medicines m
+where m.quantity <> 0
+and not exists (
+ select 1 from public.stock_movements sm
+ where sm.medicine_id=m.id and sm.movement_type='OPENING' and sm.reference='MIGRATION-OPENING'
+);
