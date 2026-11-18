@@ -92,3 +92,14 @@ create index if not exists supplier_offers_user_medicine_idx
   on public.supplier_offers(user_id, medicine_name, strength);
 create index if not exists supplier_offers_supplier_idx
   on public.supplier_offers(supplier_id);
+
+
+-- Premium supplier-offer fields. Safe to run repeatedly in Supabase SQL Editor.
+alter table public.supplier_offers add column if not exists batch_number text not null default '';
+alter table public.supplier_offers add column if not exists mrp_per_pack numeric(12,2);
+alter table public.supplier_offers add column if not exists discount_percent numeric(5,2) not null default 0 check (discount_percent between 0 and 100);
+alter table public.supplier_offers add column if not exists minimum_order_qty integer not null default 1 check (minimum_order_qty >= 1);
+alter table public.supplier_offers add column if not exists delivery_days integer not null default 0 check (delivery_days >= 0);
+alter table public.supplier_offers add column if not exists barcode text not null default '';
+alter table public.supplier_offers add column if not exists offer_notes text not null default '';
+create index if not exists supplier_offers_user_expiry_idx on public.supplier_offers(user_id, expiry_date);
