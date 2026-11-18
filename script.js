@@ -54,7 +54,7 @@ async function loadAll(){
     supplierOffers=[];window.medstockOffersTableMissing=true;
   }else{supplierOffers=so.data||[];window.medstockOffersTableMissing=false;}
   medicines=(m.data||[]).map(x=>({...x,manufacture:x.manufacture||"",minimum:Number(x.minimum),quantity:Number(x.quantity),price:Number(x.price),purchase:Number(x.purchase)}));
-  purchaseOrders=po.error?[]:(po.data||[]);stockMovements=mv.error?[]:(mv.data||[]);suppliers=s.data||[];sales=(sa.data||[]).map(x=>({id:x.invoice_no,customer:x.customer,date:x.sale_date,items:x.items||[],total:Number(x.total)}));
+  window.medstockAdvancedTablesMissing=!!(po.error||mv.error);purchaseOrders=po.error?[]:(po.data||[]);stockMovements=mv.error?[]:(mv.data||[]);suppliers=s.data||[];sales=(sa.data||[]).map(x=>({id:x.invoice_no,customer:x.customer,date:x.sale_date,items:x.items||[],total:Number(x.total)}));
 }
 async function saveMedicine(record,id){
   const payload={user_id:currentUser.id,name:record.name,category:record.category,batch:record.batch,manufacturer:record.manufacturer,purchase:record.purchase,price:record.price,quantity:record.quantity,minimum:record.minimum,manufacture:record.manufacture||null,expiry:record.expiry,barcode:record.barcode||""};
@@ -64,7 +64,7 @@ async function saveMedicine(record,id){
 function showPage(page){
   document.querySelectorAll(".page").forEach(x=>x.classList.remove("active-page"));$(page).classList.add("active-page");
   document.querySelectorAll(".nav-link").forEach(x=>x.classList.toggle("active",x.dataset.page===page));
-  const titles={purchaseOrders:"Purchase Order Studio",batchTrace:"Batch Traceability",scanDesk:"Barcode Scan Desk",copilot:"Pharmacy Copilot",dashboard:"Dashboard",inventory:"Medicine Inventory",expiry:"Expiry Management",sales:"Sales & Billing",salesHistory:"Sales History",suppliers:"Suppliers",comparison:"Medicine Intelligence",aiInsights:"AI Purchase Advisor",demandLab:"Demand Lab",riskRadar:"Risk Radar",purchaseOrders:"Purchase Orders",batchTrace:"Batch Traceability",scanDesk:"Barcode Scan Desk",copilot:"Pharmacy Copilot",reports:"Reports & Analytics"};
+  const titles={dashboard:"Dashboard",inventory:"Medicine Inventory",expiry:"Expiry Management",sales:"Sales & Billing",salesHistory:"Sales History",suppliers:"Suppliers",comparison:"Medicine Intelligence",aiInsights:"AI Purchase Advisor",demandLab:"Demand Lab",riskRadar:"Risk Radar",purchaseOrders:"Purchase Order Studio",batchTrace:"Batch Traceability",scanDesk:"Barcode Scan Desk",copilot:"Pharmacy Copilot",reports:"Reports & Analytics"};
   $("pageTitle").textContent=titles[page]||"MedStock";refreshAll();
 }
 document.querySelectorAll(".nav-link").forEach(a=>a.addEventListener("click",()=>showPage(a.dataset.page)));
@@ -96,7 +96,7 @@ $("medicineForm").addEventListener("submit",async e=>{
  const record={name:$("medName").value.trim(),category:$("medCategory").value,batch:$("medBatch").value.trim(),manufacturer:$("medManufacturer").value.trim(),purchase:Number($("medPurchase").value),price:Number($("medPrice").value),quantity:Number($("medQuantity").value),minimum:Number($("medMinimum").value),manufacture:$("medManufacture").value,expiry:$("medExpiry").value,barcode:$("medBarcode").value.trim()};
  if(Object.values(record).some(v=>v=== ""||v===null) || [record.purchase,record.price,record.quantity,record.minimum].some(v=>v<0)){toast("Please complete all required fields with valid values.");return;}
  if(record.expiry<todayString&&!confirm("This batch is already expired. Save for record keeping?"))return;
- try{await saveMedicine(record,id);await loadAll();closeModal("medicineModal");refreshAll();toast(id?"Medicine updated!":"Medicine added!");}catch(err){toast(err.message.includes("duplicate")?"This medicine batch already exists.":err.message);}
+ try{const before=id?medicines.find(x=>x.id===id):null;const saved=await saveMedicine(record,id);const delta=before?record.quantity-before.quantity:record.quantity;if(delta!==0){const mv=await db.from("stock_movements").insert({user_id:currentUser.id,medicine_id:saved?.id||id,medicine_name:record.name,batch:record.batch,barcode:record.barcode,movement_type:before?"ADJUSTED":"OPENING",quantity:delta,reference:before?"MANUAL-ADJUSTMENT":"OPENING-BALANCE",notes:before?"Quantity changed from medicine editor":"Initial stock balance"});if(mv.error)throw mv.error;}await loadAll();closeModal("medicineModal");refreshAll();toast(id?"Medicine updated!":"Medicine added!");}catch(err){toast(err.message.includes("duplicate")?"This medicine batch already exists.":err.message);}
 });
 function renderExpiry(){const rows=medicines.filter(x=>daysLeft(x)<=30).sort((a,b)=>daysLeft(a)-daysLeft(b));$("expiryTable").innerHTML=rows.map(x=>{const d=daysLeft(x);return `<tr><td>${esc(x.name)}</td><td>${esc(x.batch)}</td><td>${x.quantity}</td><td>${esc(x.expiry)}</td><td>${d<0?Math.abs(d)+" days ago":d+" days"}</td><td>${badge(status(x))}</td></tr>`;}).join("")||'<tr><td colspan="6">No expiry alerts. Great job!</td></tr>';}
 function renderSaleOptions(){const list=medicines.filter(x=>x.quantity>0&&daysLeft(x)>=0);$("saleMedicine").innerHTML=list.map(x=>`<option value="${x.id}">${esc(x.name)} - ${money(x.price)} (${x.quantity} available)</option>`).join("")||'<option value="">No available medicines</option>';}
@@ -107,7 +107,7 @@ function addToCart(){
 }
 function removeFromCart(id){cart=cart.filter(x=>x.id!==id);renderCart();}
 function renderCart(){$("cartItems").innerHTML=cart.map(x=>`<div class="cart-item"><span><strong>${esc(x.name)}</strong><br>${x.quantity} × ${money(x.price)}</span><span>${money(x.price*x.quantity)} <button class="remove-cart" onclick="removeFromCart('${x.id}')">✕</button></span></div>`).join("")||"No items added yet.";$("cartTotal").textContent=money(cart.reduce((a,x)=>a+x.price*x.quantity,0));}
-async function completeSale(){
+async async function completeSale(){
  if(!cart.length){toast("Add medicines to the cart first.");return;}
  for(const c of cart){const m=medicines.find(x=>x.id===c.id);if(!m||m.quantity<c.quantity||daysLeft(m)<0){toast("Stock changed or batch expired. Check your cart.");return;}}
  const total=cart.reduce((a,x)=>a+x.price*x.quantity,0),invoiceNo="INV-"+Date.now(),date=todayString,customer=$("customerName").value.trim()||"Walk-in Customer",paymentMethod=$("paymentMethod")?.value||"Cash";
